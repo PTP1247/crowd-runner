@@ -1,0 +1,24 @@
+{
+  "name": "Level 8 - The Gauntlet",
+  "start_count": 40,
+  "speed": 380,
+  "finish_z": 7000,
+  "objects": [
+    {"type": "gate_pair", "z": 700,  "left": ["x", 2],  "right": ["+", 30]},
+    {"type": "obstacle",  "z": 1100, "x": -50, "width": 200, "damage": 30},
+    {"type": "obstacle",  "z": 1450, "x": 50,  "width": 200, "damage": 30},
+    {"type": "obstacle",  "z": 1800, "x": 0,   "width": 300, "damage": 10},
+    {"type": "gate_pair", "z": 2200, "left": ["+", 60], "right": ["x", 2]},
+    {"type": "obstacle",  "z": 2600, "x": -60, "width": 180, "damage": 40},
+    {"type": "obstacle",  "z": 2950, "x": 60,  "width": 180, "damage": 40},
+    {"type": "obstacle",  "z": 3300, "x": 0,   "width": 300, "damage": 20},
+    {"type": "gate_pair", "z": 3700, "left": ["x", 3],  "right": ["+", 150]},
+    {"type": "obstacle",  "z": 4100, "x": 0,   "width": 200, "damage": 50},
+    {"type": "obstacle",  "z": 4450, "x": 0,   "width": 300, "damage": 30},
+    {"type": "gate_pair", "z": 4850, "left": ["-", 50], "right": ["x", 2]},
+    {"type": "obstacle",  "z": 5250, "x": -60, "width": 180, "damage": 100},
+    {"type": "obstacle",  "z": 5600, "x": 60,  "width": 180, "damage": 100},
+    {"type": "obstacle",  "z": 5950, "x": 0,   "width": 300, "damage": 40},
+    {"type": "enemy",     "z": 6500, "count": 420}
+  ]
+}
