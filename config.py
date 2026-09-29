@@ -16,7 +16,7 @@ ROAD_HALF_W = 150          # ถนนกว้างจาก x=-150 ถึง 
 CROWD_OFFSET = 200         # กลุ่มคนอยู่ข้างหน้ากล้องเป็นระยะเท่านี้เสมอ
 CROWD_SIDE_SPEED = 350     # ความเร็วเลื่อนซ้าย-ขวาด้วยคีย์บอร์ด (units/วินาที)
 PERSON_SPACING = 9         # ระยะห่างระหว่างคนในกลุ่ม (ใช้วาด)
-MAX_DRAWN_PEOPLE = 60      # วาดจริงไม่เกินเท่านี้ ไม่งั้นเกมช้าเมื่อคนเป็นพัน
+MAX_DRAWN_PEOPLE = 30     # วาดจริงไม่เกินเท่านี้ ไม่งั้นเกมช้าเมื่อคนเป็นพัน
 GATE_HEIGHT = 60           # ความสูงประตู (world units)
 
 # ---------- กล้อง (camera.py) ----------
@@ -44,6 +44,6 @@ FINISH_COLOR = (20, 20, 20)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
-CROWD_COHESION = 6.0
-CROWD_SEPARATION = 20.0
-CROWD_WANDER = 3.0
+CROWD_COHESION = 1.0
+CROWD_SEPARATION = 50.0
+CROWD_WANDER = 1.0
