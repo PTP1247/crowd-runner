@@ -7,6 +7,8 @@ State machine:  MENU --(space/click)--> PLAYING --(ถึงเส้นชั�
                 WIN/LOSE --(R)--> MENU
 """
 import sys
+import random
+import bisect
 import pygame
 
 import config as C
@@ -27,6 +29,9 @@ class Game:
         self.font = pygame.font.Font(None, 32)
         self.big_font = pygame.font.Font(None, 64)
         self.camera = Camera()
+        self.road_rows = self.make_road_rows()   # ลายถนนอิฐ (หั่นเป็นแถวไว้ล่วงหน้า)
+        self.tuft_sprites = self.make_tuft_sprites()
+        self.clouds = self.make_clouds()
         self.state = MENU
         self.reset()
 
@@ -35,6 +40,88 @@ class Game:
         self.crowd = Crowd(self.level.start_count)
         self.camera.z = 0.0
         self.next_index = 0  # object ถัดไปใน level.objects ที่กลุ่มคนยังไม่ถึง
+        self.make_tufts()
+
+    # ---------------- สร้างลายพิกเซล ----------------
+    def make_road_rows(self, w=96, h=128):
+        """สร้างลายอิฐปูทางแบบพิกเซล ต่อเนื่องทุกด้าน แล้วหั่นเป็นแถวไว้ใช้วาด"""
+        rng = random.Random(7)                       # seed คงที่ ลายเดิมทุกครั้ง
+        bw, bh = 16, 8                               # ขนาดอิฐ (w หาร bw ลงตัว, h หาร bh ลงตัว)
+        mortar = (70, 62, 62)                        # สีร่องระหว่างอิฐ
+        bricks = [(150, 98, 82), (160, 106, 88),     # โทนอิฐแดงน้ำตาล
+                  (140, 90, 76), (168, 114, 94),
+                  (132, 88, 78)]
+        tex = pygame.Surface((w, h))
+        tex.fill(mortar)
+        for row in range(h // bh):
+            shift = (bw // 2) if row % 2 else 0      # แถวคี่เยื้องครึ่งก้อน
+            for col in range(w // bw):
+                color = rng.choice(bricks)
+                light = tuple(min(255, c + 14) for c in color)
+                x0 = col * bw + shift
+                y0 = row * bh
+                for dy in range(bh - 1):             # เว้น 1 พิกเซลล่างเป็นร่อง
+                    for dx in range(bw - 1):         # เว้น 1 พิกเซลขวาเป็นร่อง
+                        c = light if dy == 0 else color   # ขอบบนสว่างนิดให้ดูนูน
+                        tex.set_at(((x0 + dx) % w, y0 + dy), c)
+        return [tex.subsurface((0, i, w, 1)).copy() for i in range(h)]
+
+    def make_tuft_sprites(self):
+        """กอหญ้าพิกเซลเล็กๆ 3 แบบ"""
+        rng = random.Random(3)
+        dark, light = (60, 120, 64), (130, 200, 105)
+        sprites = []
+        for _ in range(3):
+            surf = pygame.Surface((9, 6), pygame.SRCALPHA)
+            for bx in (1, 4, 7):
+                hgt = rng.randint(2, 5)
+                for y in range(hgt):
+                    surf.set_at((bx, 5 - y), light if y == hgt - 1 else dark)
+            sprites.append(surf)
+        return sprites
+
+    def make_tufts(self):
+        """สุ่มตำแหน่งกอหญ้าตลอดด่าน (ซ้าย-ขวานอกถนน) เรียงตาม z ไว้ล่วงหน้า"""
+        rng = random.Random(11)
+        self.tufts = []
+        for z in range(0, int(self.level.finish_z) + 400, 40):
+            for _ in range(2):
+                side = rng.choice((-1, 1))
+                x = side * rng.uniform(C.ROAD_HALF_W + 30, C.ROAD_HALF_W + 700)
+                self.tufts.append((z, x, rng.randrange(len(self.tuft_sprites))))
+        self.tuft_zs = [t[0] for t in self.tufts]
+
+    def make_clouds(self):
+        """เมฆก้อนเหลี่ยมแบบพิกเซล"""
+        white, shade = (245, 248, 255), (214, 226, 245)
+        shapes = [
+            [(2, 3, 10, 3), (0, 4, 14, 3), (4, 1, 6, 3)],
+            [(1, 2, 8, 3), (0, 3, 11, 2), (3, 0, 4, 3)],
+        ]
+        clouds = []
+        for rects in shapes:
+            surf = pygame.Surface((15, 8), pygame.SRCALPHA)
+            for x, y, w, h in rects:
+                pygame.draw.rect(surf, white, (x, y, w, h))
+            pygame.draw.rect(surf, shade, (0, 6, 14, 1))
+            clouds.append(pygame.transform.scale(surf, (15 * 8, 8 * 8)))
+        return clouds
+
+    def draw_sky(self):
+        # ไล่สีเป็นขั้นๆ ให้ดูเป็นพิกเซล
+        top, bottom, bands = (70, 140, 230), (170, 215, 250), 8
+        h = C.HORIZON_Y
+        for i in range(bands):
+            t = i / (bands - 1)
+            color = tuple(int(top[k] + (bottom[k] - top[k]) * t) for k in range(3))
+            self.screen.fill(color, (0, i * h // bands, C.SCREEN_W, h // bands + 1))
+        # เมฆลอยช้าๆ วนกลับมาเมื่อหลุดจอ
+        t = pygame.time.get_ticks() / 1000
+        for cloud, y, speed, x0 in ((self.clouds[0], 50, 12, 80),
+                                    (self.clouds[1], 110, 8, 300),
+                                    (self.clouds[0], 170, 5, 520)):
+            x = (x0 + t * speed) % (C.SCREEN_W + 240) - 120
+            self.screen.blit(cloud, (x, min(y, h - cloud.get_height())))
 
     # ---------------- input ----------------
     def handle_events(self):
@@ -88,17 +175,57 @@ class Game:
     # ---------------- draw ----------------
     def draw_world(self):
         cam = self.camera
-        self.screen.fill(C.SKY if cam.mode == "depth" else C.GROUND)
+        near, far = cam.z + C.Z_NEAR, cam.z + C.Z_FAR
+
+        # ท้องฟ้า + พื้น
         if cam.mode == "depth":
-            pygame.draw.rect(self.screen, C.GROUND, (0, C.HORIZON_Y, C.SCREEN_W, C.SCREEN_H))
+            self.draw_sky()
+            pygame.draw.rect(self.screen, C.GROUND_A, (0, C.HORIZON_Y, C.SCREEN_W, C.SCREEN_H))
+        else:
+            self.screen.fill(C.GROUND_A)
+
+        # พื้นหญ้าแถบสลับสี (perspective)
+        band, gw = 120, 3000
+        z = (int(near) // band) * band
+        while z < far:
+            if (z // band) % 2:
+                a, b = max(z, near), min(z + band, far)
+                pts = [cam.project(x, zz)[:2] for x, zz in ((-gw, a), (gw, a), (gw, b), (-gw, b))]
+                pygame.draw.polygon(self.screen, C.GROUND_B, pts)
+            z += band
+
+        # กอหญ้า: วาดไกล -> ใกล้
+        lo = bisect.bisect_left(self.tuft_zs, near)
+        hi = bisect.bisect_right(self.tuft_zs, far)
+        for z, x, k in reversed(self.tufts[lo:hi]):
+            sx, sy, s = cam.project(x, z)
+            w = int(9 * 3 * s)
+            if w >= 2:
+                sprite = pygame.transform.scale(self.tuft_sprites[k], (w, max(1, int(w * 6 / 9))))
+                self.screen.blit(sprite, (sx - w // 2, sy - sprite.get_height()))
 
         # ถนน = สี่เหลี่ยมคางหมูจากใกล้ไปไกล (ในโหมด flat จะกลายเป็นสี่เหลี่ยมผืนผ้าเอง)
-        near, far = cam.z + C.Z_NEAR, cam.z + C.Z_FAR
         corners = [cam.project(x, z)[:2] for x, z in
                    ((-C.ROAD_HALF_W, near), (C.ROAD_HALF_W, near), (C.ROAD_HALF_W, far), (-C.ROAD_HALF_W, far))]
-        pygame.draw.polygon(self.screen, C.ROAD, corners)
+        pygame.draw.polygon(self.screen, C.ROAD, corners)   # พื้นรองกันช่องโหว่
 
-        # เส้นประกลางถนน ทำให้รู้สึกว่ากำลังวิ่ง
+        # ลายอิฐบนถนน: หั่นเป็นแถบบางๆ ตามแกน z ความกว้างแต่ละแถบตาม perspective
+        step, tile = 4, 200            # step = ความหนาแถบ (น้อย = เนียนแต่ช้า) / tile = ความยาวลายต่อรอบ
+        n = len(self.road_rows)
+        z = near
+        while z < far:
+            z1 = min(z + step, far)
+            xl, y0, _ = cam.project(-C.ROAD_HALF_W, z)
+            xr, _, _ = cam.project(C.ROAD_HALF_W, z)
+            _, y1, _ = cam.project(0, z1)
+            w, h = int(xr - xl), int(abs(y0 - y1)) + 1       # +1 กันรอยแตก
+            if w > 0 and h > 0:
+                v = (z % tile) / tile                         # ลายต่อเนื่องเอง ไม่ต้องสะท้อน
+                row = self.road_rows[min(n - 1, int(v * n))]
+                self.screen.blit(pygame.transform.scale(row, (w, h)), (xl, min(y0, y1)))
+            z = z1
+
+        # เส้นประกลางถนน ทำให้รู้สึกว่ากำลังวิ่ง (ถ้าไม่อยากได้บนลายอิฐ ลบบล็อกนี้ทิ้งได้)
         step = 200
         z = (int(near) // step + 1) * step
         while z < far:

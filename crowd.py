@@ -115,6 +115,22 @@ class Crowd:
     def remove(self, people):
         gone = set(map(id, people))
         self.people = [p for p in self.people if id(p) not in gone]
+        
+        # 📌 เพิ่มระบบ "จัดสมดุลศูนย์ถ่วงใหม่ (Center of Mass)"
+        if self.count > 0:
+            # 1. หาพิกัดเฉลี่ย (จุดกึ่งกลางที่แท้จริง) ของคนที่รอดชีวิต
+            avg_dx = sum(p.dx for p in self.people) / self.count
+            avg_dz = sum(p.dz for p in self.people) / self.count
+            
+            # 2. ขยับตำแหน่งกลุ่ม (self.x) ให้วิ่งตามไปหาคนที่รอดชีวิต
+            self.x += avg_dx
+            
+            # 3. ปรับระยะของคนแต่ละคนให้สัมพันธ์กับศูนย์กลางใหม่
+            # (ไม่ต้องห่วง ภาพจะไม่กระตุกเลย แต่มันจะทำให้แรงดึงดูดกลับมาสมดุลทันที!)
+            for p in self.people:
+                p.dx -= avg_dx
+                p.dz -= avg_dz
+
 
     def radius(self):
         """รัศมีของก้อนคน โดยประมาณ (ใช้กันไม่ให้ตกขอบถนน / คำนวณการชน)"""
