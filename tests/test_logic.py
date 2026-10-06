@@ -231,7 +231,8 @@ def test_endless_gets_harder():
     level, _, _ = play_endless(seed=7, chunks=20)
     ratios = [c["wins"] / c["total"] for c in level.chunks]
     assert sum(ratios[:3]) / 3 > 0.5                           # ช่วงแรก: ทางชนะเกินครึ่ง
-    assert sum(ratios[12:18]) / 6 < 0.2                        # ช่วงหลัง: เหลือไม่ถึง 20%
+    assert sum(ratios[12:18]) / 6 < 0.3                        # ช่วงหลัง: เหลือไม่ถึง 30%
+    assert min(ratios) > endless.MIN_RATIO - 0.1               # แต่ไม่ต่ำกว่าเพดานความยากมาก
     for c in level.chunks:                                     # ได้ใกล้เป้าแต่ละช่วง
         assert abs(c["wins"] / c["total"] - c["target"]) < 0.15, c
     assert endless.speed_for(10) > endless.speed_for(0)

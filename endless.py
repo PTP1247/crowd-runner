@@ -35,12 +35,12 @@ START_COUNT = 20
 COUNT_CAP = 800           # ไม่ให้เส้นทางไหนมีคนเกินนี้ (Crowd เก็บคนทีละตัว คนเยอะเกมช้า)
 
 START_RATIO = 0.75        # ช่วงแรก: 75% ของเส้นทางชนะ
-RATIO_DECAY = 0.85        # ทุกช่วงถัดไป: เป้าคูณ 0.85
-MIN_RATIO = 0.10          # ยากสุดแค่นี้ (ยังมีทางชนะเสมอ)
+RATIO_DECAY = 0.88        # ทุกช่วงถัดไป: เป้าคูณ 0.88
+MIN_RATIO = 0.20          # ยากสุดแค่นี้: อย่างน้อย 1 ใน 5 เส้นทางยังชนะ
 
 BASE_SPEED = 300
-SPEED_STEP = 15
-MAX_SPEED = 550
+SPEED_STEP = 12
+MAX_SPEED = 500
 
 
 # ---------------- นับเส้นทาง (ใช้ได้กับด่านปกติด้วย) ----------------
@@ -217,7 +217,7 @@ class EndlessLevel:
             pair = GatePair(start + off, *random_pair(k, routes, rng))
             routes = spread(routes, [pair])
             new.append(pair)
-        width = min(C.ROAD_HALF_W, 80 + 7 * k)
+        width = min(C.ROAD_HALF_W, 80 + 5 * k)
         for off in obstacles:
             x = rng.uniform(-C.ROAD_HALF_W + width / 2, C.ROAD_HALF_W - width / 2)
             new.append(Obstacle(x, start + off, width, 10))
