@@ -80,12 +80,24 @@ def speed_for(d):
 
 
 def layout(d):
-    """ตำแหน่ง (offset ในช่วง) ของประตู สิ่งกีดขวาง และศัตรู ตามความยาก d"""
-    n_gates = 2 if d < 2 else 3 if d < 6 else 4
-    gates = [200 + i * 560 // (n_gates - 1) for i in range(n_gates)]
-    mids = [(a + b) // 2 for a, b in zip(gates, gates[1:])]
-    n_obstacles = 1 if d < 4 else 2 if d < 8 else 3
-    return gates, mids[:n_obstacles], 900
+    """ตำแหน่ง (offset ในช่วง) ของประตู สิ่งกีดขวาง และศัตรู ตามความยาก d
+
+    เรียง ประตู, สิ่งกีดขวาง, ประตู, ... , ศัตรู  แล้วกระจายห่างเท่าๆ กันตั้งแต่ 150 ถึง 900
+    ของเยอะสุด 6 ชิ้น = ห่างกันอย่างน้อย 150 (ถ้าชิดกว่านี้ วิ่งเร็วๆ คนเลี้ยวหลบไม่ทัน)
+    """
+    n_gates = 2 if d < 2 else 3
+    n_obstacles = 1 if d < 4 else 2
+    order = []
+    for i in range(n_gates):
+        order.append("gate")
+        if i < n_obstacles:
+            order.append("obstacle")
+    order.append("enemy")
+    step = 750 // (len(order) - 1)
+    at = [150 + i * step for i in range(len(order))]
+    gates = [z for z, kind in zip(at, order) if kind == "gate"]
+    obstacles = [z for z, kind in zip(at, order) if kind == "obstacle"]
+    return gates, obstacles, at[-1]
 
 
 def pick_enemy(finals, target, rng):

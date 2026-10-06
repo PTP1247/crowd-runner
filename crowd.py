@@ -136,11 +136,13 @@ class Crowd:
         """รัศมีของก้อนคน โดยประมาณ (ใช้กันไม่ให้ตกขอบถนน / คำนวณการชน)"""
         return C.PERSON_SPACING * math.sqrt(min(self.count, C.MAX_DRAWN_PEOPLE))
 
-    def move(self, direction, dt):
-        """direction: -1 = ซ้าย, +1 = ขวา, 0 = อยู่นิ่ง  (คีย์บอร์ด)"""
+    def move(self, direction, dt, forward_speed=0):
+        """direction: -1 = ซ้าย, +1 = ขวา, 0 = อยู่นิ่ง  (คีย์บอร์ด)
+        forward_speed: ความเร็ววิ่งของด่าน  ยิ่งวิ่งเร็ว ยิ่งเลี้ยวเร็ว ไม่งั้นด่านเร็วๆ หลบไม่ทัน"""
         if direction:
             self.target_x = None
-            self.x += direction * C.CROWD_SIDE_SPEED * dt
+            side = max(C.CROWD_SIDE_SPEED, forward_speed * C.CROWD_SIDE_RATIO)
+            self.x += direction * side * dt
 
     def update(self, dt):
         # 1. เลี้ยวตามเมาส์ (ถ้ามี)

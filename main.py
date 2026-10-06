@@ -179,7 +179,7 @@ class Game:
         if self.state == PLAYING:
             keys = pygame.key.get_pressed()
             direction = (keys[pygame.K_RIGHT] or keys[pygame.K_d]) - (keys[pygame.K_LEFT] or keys[pygame.K_a])
-            self.crowd.move(direction, self.dt)
+            self.crowd.move(direction, self.dt, self.level.speed)
             if pygame.mouse.get_pressed()[0]:  # กดเมาส์ค้างแล้วลาก
                 mx, _ = pygame.mouse.get_pos()
                 self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
