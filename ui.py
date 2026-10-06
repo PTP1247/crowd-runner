@@ -38,13 +38,30 @@ def draw_stars(screen, center, n, r=10, total=3):
         draw_star(screen, (cx + (k - (total - 1) / 2) * gap, cy), r, k < n)
 
 
-def draw_menu(screen, big, small, levels, selected, scores):
-    """levels: [(ชื่อไฟล์, ชื่อด่าน), ...]   selected: index ที่เลือกอยู่   scores: จาก scores.load_scores()"""
+def draw_lock(screen, center, color):
+    """แม่กุญแจเล็กๆ: ห่วงด้านบน + ตัวกุญแจสี่เหลี่ยม"""
+    cx, cy = center
+    pygame.draw.rect(screen, color, (cx - 6, cy - 12, 12, 12), 3, border_radius=6)
+    pygame.draw.rect(screen, color, (cx - 9, cy - 4, 18, 14), border_radius=3)
+
+
+def draw_menu(screen, big, small, levels, selected, scores, unlocked):
+    """levels: [(ชื่อไฟล์, ชื่อด่าน), ...]   selected: index ที่เลือกอยู่   scores: จาก scores.load_scores()
+    unlocked: [True/False ต่อด่าน]  ด่านที่ล็อกวาดเป็นสีเทา + แม่กุญแจ"""
     screen.fill((30, 40, 70))
     draw_text_center(screen, big, C.TITLE, 90)
     draw_text_center(screen, small, "Choose a level", 150, (190, 200, 230))
     for i, (filename, name) in enumerate(levels):
         rect = menu_row_rect(i)
+        if not unlocked[i]:
+            pygame.draw.rect(screen, (38, 44, 62), rect, border_radius=8)
+            label = small.render(name, True, (95, 105, 130))
+            if label.get_width() > 250:
+                label = pygame.transform.smoothscale(
+                    label, (250, max(1, label.get_height() * 250 // label.get_width())))
+            screen.blit(label, label.get_rect(midleft=(rect.x + 12, rect.centery)))
+            draw_lock(screen, (rect.right - 25, rect.centery), (95, 105, 130))
+            continue
         active = i == selected
         pygame.draw.rect(screen, (70, 95, 160) if active else (45, 58, 95), rect, border_radius=8)
         if active:
@@ -60,8 +77,8 @@ def draw_menu(screen, big, small, levels, selected, scores):
             text = small.render(str(best["count"]), True, (190, 200, 230))
             screen.blit(text, text.get_rect(midright=(rect.right - 10, rect.centery)))
     hint_y = MENU_TOP + len(levels) * MENU_ROW_H + 20
-    draw_text_center(screen, small, "Up/Down + SPACE, or click a level", hint_y, (190, 200, 230))
-    draw_text_center(screen, small, "Move: mouse or A/D   V: switch view", hint_y + 34, (190, 200, 230))
+    draw_text_center(screen, small, "Win a level to unlock the next one", hint_y, (190, 200, 230))
+    draw_text_center(screen, small, "Up/Down + SPACE, or click a level", hint_y + 34, (190, 200, 230))
 
 
 def draw_hud(screen, font, level, progress):

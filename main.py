@@ -141,20 +141,23 @@ class Game:
                     self.camera.toggle_mode()
                 if self.state == MENU:
                     if event.key in (pygame.K_UP, pygame.K_w):
-                        self.selected = (self.selected - 1) % len(self.level_files)
+                        self.move_selection(-1)
                     elif event.key in (pygame.K_DOWN, pygame.K_s):
-                        self.selected = (self.selected + 1) % len(self.level_files)
+                        self.move_selection(1)
                     elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
                         self.start_level()
                 elif self.state in (WIN, LOSE):
                     if event.key == pygame.K_r:
                         self.start_level()
                     elif event.key == pygame.K_m:
+                        # ชนะแล้วเลื่อนไปด่านถัดไปที่เพิ่งปลดล็อกให้เลย
+                        if self.state == WIN and self.unlocked(self.selected + 1):
+                            self.selected += 1
                         self.reset()
                         self.state = MENU
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.state == MENU:
                 for i in range(len(self.level_files)):
-                    if ui.menu_row_rect(i).collidepoint(event.pos):
+                    if ui.menu_row_rect(i).collidepoint(event.pos) and self.unlocked(i):
                         self.selected = i
                         self.start_level()
                         break
@@ -166,6 +169,19 @@ class Game:
             if pygame.mouse.get_pressed()[0]:  # กดเมาส์ค้างแล้วลาก
                 mx, _ = pygame.mouse.get_pos()
                 self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
+
+    def unlocked(self, i):
+        return i < len(self.level_files) and scores.is_unlocked(self.level_files, i, self.scores)
+
+    def move_selection(self, step):
+        """เลื่อนไปด่านที่ปลดล็อกแล้วถัดไป (ข้ามด่านที่ล็อก วนรอบได้)"""
+        n = len(self.level_files)
+        i = self.selected
+        for _ in range(n):
+            i = (i + step) % n
+            if self.unlocked(i):
+                self.selected = i
+                return
 
     def start_level(self):
         self.reset()
@@ -282,7 +298,9 @@ class Game:
 
     def draw(self):
         if self.state == MENU:
-            ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores)
+            unlocked = [self.unlocked(i) for i in range(len(self.level_files))]
+            ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores,
+                         unlocked)
         else:
             self.draw_world()
             progress = self.crowd.z / self.level.finish_z

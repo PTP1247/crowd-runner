@@ -159,6 +159,15 @@ def test_highscore_save_and_keep_best(tmp_path=None):
     assert scores.load_scores(path) == {}
 
 
+def test_unlock_needs_previous_win():
+    files = ["level1.json", "level2.json", "level3.json"]
+    assert scores.is_unlocked(files, 0, {})                    # ด่านแรกเปิดเสมอ
+    assert not scores.is_unlocked(files, 1, {})
+    won1 = {"level1.json": {"count": 10, "stars": 1}}
+    assert scores.is_unlocked(files, 1, won1)
+    assert not scores.is_unlocked(files, 2, won1)              # ข้ามด่านไม่ได้
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

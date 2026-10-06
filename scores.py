@@ -49,3 +49,8 @@ def record(level_file, count, star_count, path=None):
     except OSError:
         pass  # เขียนไฟล์ไม่ได้ (เช่น โฟลเดอร์อ่านอย่างเดียว) ก็เล่นต่อได้ แค่ไม่จำคะแนน
     return True
+
+
+def is_unlocked(level_files, i, scores):
+    """ด่านแรกเล่นได้เสมอ ด่านอื่นต้องชนะด่านก่อนหน้าก่อน (มีคะแนนบันทึกไว้ = เคยชนะ)"""
+    return i == 0 or level_files[i - 1] in scores
