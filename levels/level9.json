@@ -1,7 +1,7 @@
 {
   "name": "Level 9 - Army March",
   "start_count": 30,
-  "speed": 370,
+  "speed": 380,
   "finish_z": 7400,
   "objects": [
     {"type": "gate_pair", "z": 700,  "left": ["x", 2],  "right": ["+", 20]},
@@ -9,7 +9,7 @@
     {"type": "gate_pair", "z": 1700, "left": ["+", 40], "right": ["x", 3]},
     {"type": "enemy",     "z": 2200, "count": 60},
     {"type": "gate_pair", "z": 2700, "left": ["x", 2],  "right": ["-", 20]},
-    {"type": "obstacle",  "z": 3200, "x": 0,   "width": 300, "damage": 30},
+    {"type": "obstacle",  "z": 3200, "x": 0,   "width": 150, "damage": 30},
     {"type": "gate_pair", "z": 3700, "left": ["x", 3],  "right": ["+", 100]},
     {"type": "enemy",     "z": 4200, "count": 110},
     {"type": "gate_pair", "z": 4700, "left": ["/", 2],  "right": ["+", 80]},

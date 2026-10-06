@@ -8,7 +8,7 @@
     {"type": "gate_pair", "z": 1300, "left": ["x", 2],  "right": ["-", 5]},
     {"type": "gate_pair", "z": 1900, "left": ["-", 10], "right": ["x", 3]},
     {"type": "gate_pair", "z": 2500, "left": ["+", 20], "right": ["/", 2]},
-    {"type": "obstacle",  "z": 3000, "x": 0,   "width": 300, "damage": 40},
+    {"type": "obstacle",  "z": 3000, "x": 0,   "width": 150, "damage": 40},
     {"type": "gate_pair", "z": 3500, "left": ["x", 3],  "right": ["+", 60]},
     {"type": "gate_pair", "z": 4100, "left": ["/", 3],  "right": ["+", 50]},
     {"type": "gate_pair", "z": 4700, "left": ["-", 40], "right": ["x", 2]},

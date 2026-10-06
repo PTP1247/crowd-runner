@@ -10,14 +10,14 @@
     {"type": "gate_pair", "z": 2050, "left": ["-", 20], "right": ["x", 3]},
     {"type": "enemy",     "z": 2500, "count": 80},
     {"type": "gate_pair", "z": 2950, "left": ["x", 2],  "right": ["/", 2]},
-    {"type": "obstacle",  "z": 3400, "x": 0,   "width": 300, "damage": 60},
+    {"type": "obstacle",  "z": 3400, "x": 0,   "width": 150, "damage": 60},
     {"type": "gate_pair", "z": 3850, "left": ["+", 100],"right": ["x", 2]},
     {"type": "obstacle",  "z": 4300, "x": 75,  "width": 150, "damage": 120},
     {"type": "gate_pair", "z": 4750, "left": ["x", 3],  "right": ["-", 100]},
     {"type": "enemy",     "z": 5200, "count": 300},
     {"type": "gate_pair", "z": 5650, "left": ["/", 3],  "right": ["x", 2]},
-    {"type": "obstacle",  "z": 6100, "x": 0,   "width": 300, "damage": 150},
+    {"type": "obstacle",  "z": 6100, "x": 0,   "width": 150, "damage": 150},
     {"type": "gate_pair", "z": 6550, "left": ["x", 2],  "right": ["+", 300]},
-    {"type": "enemy",     "z": 7300, "count": 4200}
+    {"type": "enemy",     "z": 7300, "count": 3000}
   ]
 }

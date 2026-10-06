@@ -11,7 +11,7 @@
     {"type": "gate_pair", "z": 2900, "left": ["x", 3],  "right": ["+", 40]},
     {"type": "obstacle",  "z": 3400, "x": -75, "width": 150, "damage": 30},
     {"type": "gate_pair", "z": 3900, "left": ["-", 20], "right": ["x", 2]},
-    {"type": "obstacle",  "z": 4400, "x": 0,   "width": 300, "damage": 25},
+    {"type": "obstacle",  "z": 4400, "x": 0,   "width": 150, "damage": 25},
     {"type": "gate_pair", "z": 4900, "left": ["+", 60], "right": ["x", 2]},
     {"type": "enemy",     "z": 5500, "count": 120},
     {"type": "gate_pair", "z": 6000, "left": ["x", 2],  "right": ["+", 30]},
