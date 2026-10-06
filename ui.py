@@ -45,7 +45,7 @@ def draw_lock(screen, center, color):
     pygame.draw.rect(screen, color, (cx - 9, cy - 4, 18, 14), border_radius=3)
 
 
-def draw_menu(screen, big, small, levels, selected, scores, unlocked):
+def draw_menu(screen, big, small, levels, selected, scores, unlocked, unlock_all=False):
     """levels: [(ชื่อไฟล์, ชื่อด่าน), ...]   selected: index ที่เลือกอยู่   scores: จาก scores.load_scores()
     unlocked: [True/False ต่อด่าน]  ด่านที่ล็อกวาดเป็นสีเทา + แม่กุญแจ"""
     screen.fill((30, 40, 70))
@@ -79,6 +79,10 @@ def draw_menu(screen, big, small, levels, selected, scores, unlocked):
     hint_y = MENU_TOP + len(levels) * MENU_ROW_H + 20
     draw_text_center(screen, small, "Win a level to unlock the next one", hint_y, (190, 200, 230))
     draw_text_center(screen, small, "Up/Down + SPACE, or click a level", hint_y + 34, (190, 200, 230))
+    if unlock_all:
+        draw_text_center(screen, small, "U: unlock all (testing)  [ON]", hint_y + 68, STAR_ON)
+    else:
+        draw_text_center(screen, small, "U: unlock all (testing)", hint_y + 68, (120, 130, 160))
 
 
 def draw_hud(screen, font, level, progress):

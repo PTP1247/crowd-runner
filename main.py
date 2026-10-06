@@ -37,6 +37,7 @@ class Game:
         self.level_names = [(f, load_level(f).name) for f in self.level_files]
         self.selected = 0                       # index ด่านที่เลือกในเมนู
         self.scores = scores.load_scores()
+        self.unlock_all = False                 # ปุ่ม U ในเมนู: ปลดล็อกทุกด่านชั่วคราว (ไว้ทดสอบ/โชว์ ไม่บันทึกลงไฟล์)
         self.state = MENU
         self.reset()
 
@@ -146,6 +147,10 @@ class Game:
                         self.move_selection(1)
                     elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
                         self.start_level()
+                    elif event.key == pygame.K_u:
+                        self.unlock_all = not self.unlock_all
+                        if not self.unlocked(self.selected):   # ปิดแล้วด่านที่เลือกอยู่ล็อก กลับไปด่านแรก
+                            self.selected = 0
                 elif self.state in (WIN, LOSE):
                     if event.key == pygame.K_r:
                         self.start_level()
@@ -171,7 +176,9 @@ class Game:
                 self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
 
     def unlocked(self, i):
-        return i < len(self.level_files) and scores.is_unlocked(self.level_files, i, self.scores)
+        if i >= len(self.level_files):
+            return False
+        return self.unlock_all or scores.is_unlocked(self.level_files, i, self.scores)
 
     def move_selection(self, step):
         """เลื่อนไปด่านที่ปลดล็อกแล้วถัดไป (ข้ามด่านที่ล็อก วนรอบได้)"""
@@ -300,7 +307,7 @@ class Game:
         if self.state == MENU:
             unlocked = [self.unlocked(i) for i in range(len(self.level_files))]
             ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores,
-                         unlocked)
+                         unlocked, self.unlock_all)
         else:
             self.draw_world()
             progress = self.crowd.z / self.level.finish_z
