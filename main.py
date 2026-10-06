@@ -2,9 +2,9 @@
 
 รัน:  python main.py
 
-State machine:  MENU --(space/click)--> PLAYING --(ถึงเส้นชัย)--> WIN
-                                               \--(คนเหลือ 0)--> LOSE
-                WIN/LOSE --(R)--> MENU
+State machine:  MENU --(เลือกด่าน: space/click)--> PLAYING --(ถึงเส้นชัย)--> WIN
+                                                         +--(คนเหลือ 0)--> LOSE
+                WIN/LOSE --(R)--> PLAYING ด่านเดิม,  --(M)--> MENU
 """
 import sys
 import random
@@ -13,9 +13,10 @@ import pygame
 
 import config as C
 import ui
+import scores
 from camera import Camera
 from crowd import Crowd
-from level import load_level
+from level import load_level, list_levels, best_count
 
 MENU, PLAYING, WIN, LOSE = "menu", "playing", "win", "lose"
 
@@ -32,11 +33,17 @@ class Game:
         self.road_rows = self.make_road_rows()   # ลายถนนอิฐ (หั่นเป็นแถวไว้ล่วงหน้า)
         self.tuft_sprites = self.make_tuft_sprites()
         self.clouds = self.make_clouds()
+        self.level_files = list_levels()
+        self.level_names = [(f, load_level(f).name) for f in self.level_files]
+        self.selected = 0                       # index ด่านที่เลือกในเมนู
+        self.scores = scores.load_scores()
         self.state = MENU
         self.reset()
 
     def reset(self):
-        self.level = load_level("level1.json")
+        self.level = load_level(self.level_files[self.selected])
+        self.result = None   # (ดาว, high score เดิม, สถิติใหม่ไหม) ตั้งค่าตอนจบด่าน
+        self.best = best_count(self.level)   # คิดก่อนเล่น เพราะตอนปะทะ enemy.count จะลดลง
         self.crowd = Crowd(self.level.start_count)
         self.camera.z = 0.0
         self.next_index = 0  # object ถัดไปใน level.objects ที่กลุ่มคนยังไม่ถึง
@@ -132,13 +139,25 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_v:
                     self.camera.toggle_mode()
-                if self.state == MENU and event.key == pygame.K_SPACE:
-                    self.state = PLAYING
-                if self.state in (WIN, LOSE) and event.key == pygame.K_r:
-                    self.reset()
-                    self.state = MENU
-            if event.type == pygame.MOUSEBUTTONDOWN and self.state == MENU:
-                self.state = PLAYING
+                if self.state == MENU:
+                    if event.key in (pygame.K_UP, pygame.K_w):
+                        self.selected = (self.selected - 1) % len(self.level_files)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        self.selected = (self.selected + 1) % len(self.level_files)
+                    elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
+                        self.start_level()
+                elif self.state in (WIN, LOSE):
+                    if event.key == pygame.K_r:
+                        self.start_level()
+                    elif event.key == pygame.K_m:
+                        self.reset()
+                        self.state = MENU
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.state == MENU:
+                for i in range(len(self.level_files)):
+                    if ui.menu_row_rect(i).collidepoint(event.pos):
+                        self.selected = i
+                        self.start_level()
+                        break
 
         if self.state == PLAYING:
             keys = pygame.key.get_pressed()
@@ -147,6 +166,21 @@ class Game:
             if pygame.mouse.get_pressed()[0]:  # กดเมาส์ค้างแล้วลาก
                 mx, _ = pygame.mouse.get_pos()
                 self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
+
+    def start_level(self):
+        self.reset()
+        self.state = PLAYING
+
+    def finish_level(self, won):
+        """เรียกครั้งเดียวตอนจบด่าน: คิดดาว + บันทึก high score"""
+        filename = self.level_files[self.selected]
+        count = self.crowd.count if won else 0
+        star_count = scores.stars(won, count, self.best)
+        old = self.scores.get(filename)
+        new_record = won and scores.record(filename, count, star_count)
+        self.scores = scores.load_scores()
+        self.result = (star_count, old, new_record)
+        self.state = WIN if won else LOSE
 
     # ---------------- update ----------------
     def update(self):
@@ -168,9 +202,9 @@ class Game:
             obj.update(self.dt)
 
         if self.crowd.count <= 0:
-            self.state = LOSE
+            self.finish_level(False)
         elif self.crowd.z >= self.level.finish_z:
-            self.state = WIN
+            self.finish_level(True)
 
     # ---------------- draw ----------------
     def draw_world(self):
@@ -248,13 +282,14 @@ class Game:
 
     def draw(self):
         if self.state == MENU:
-            ui.draw_menu(self.screen, self.big_font, self.font)
+            ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores)
         else:
             self.draw_world()
             progress = self.crowd.z / self.level.finish_z
             ui.draw_hud(self.screen, self.font, self.level, progress)
             if self.state in (WIN, LOSE):
-                ui.draw_end(self.screen, self.big_font, self.font, self.state == WIN, self.crowd.count)
+                ui.draw_end(self.screen, self.big_font, self.font, self.state == WIN, self.crowd.count,
+                            *self.result)
         pygame.display.flip()
 
     def run(self):
