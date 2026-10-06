@@ -12,7 +12,10 @@ from gate import Gate
 from crowd import Crowd
 from obstacle import Obstacle
 from enemy import EnemyGroup
-from level import load_level
+import config as C
+import scores
+from gate import GatePair
+from level import load_level, list_levels, best_count, build_object
 
 
 def test_gate_ops():
@@ -23,13 +26,14 @@ def test_gate_ops():
 
 
 def test_obstacle_hit_and_miss():
+    # กติกาของ B (branch dew): คนที่อยู่ในความกว้างของสิ่งกีดขวางหายหมด, damage ไม่ถูกใช้แล้ว
     crowd = Crowd(20)
-    crowd.x = -75
-    Obstacle(-75, 100, 150, 5).on_reach(crowd)
-    assert crowd.count == 15
     crowd.x = 75
     Obstacle(-75, 100, 150, 5).on_reach(crowd)    # อยู่คนละฝั่ง ไม่โดน
-    assert crowd.count == 15
+    assert crowd.count == 20
+    crowd.x = -75
+    Obstacle(-75, 100, 150, 5).on_reach(crowd)    # ทั้งก้อนอยู่ในช่วงพอดี โดนหมด
+    assert crowd.count == 0
 
 
 def test_enemy_fight():
@@ -43,6 +47,116 @@ def test_level1_loads_sorted():
     zs = [o.z for o in level.objects]
     assert zs == sorted(zs)
     assert level.finish_z > zs[-1]
+
+
+# ---------- ประตู: กรณีขอบ ----------
+
+def test_gate_invalid():
+    for bad in (("?", 1), ("/", 0)):
+        try:
+            Gate(0, 1, *bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"Gate{bad} ควร raise ValueError")
+
+
+def test_gate_good_and_label():
+    assert Gate(0, 1, "+", 5).is_good() and Gate(0, 1, "x", 2).is_good()
+    assert not Gate(0, 1, "-", 5).is_good() and not Gate(0, 1, "/", 2).is_good()
+    assert Gate(0, 1, "x", 3).label() == "×3"
+    assert Gate(0, 1, "/", 2).label() == "÷2"
+
+
+def test_gate_pair_picks_side():
+    crowd = Crowd(10)
+    crowd.x = -50                              # ฝั่งซ้าย
+    GatePair(100, ("+", 5), ("x", 10)).on_reach(crowd)
+    assert crowd.count == 15
+    crowd.x = 50                               # ฝั่งขวา
+    pair = GatePair(100, ("+", 5), ("x", 10))
+    pair.on_reach(crowd)
+    assert crowd.count == 150 and pair.used
+    crowd.x = 0                                # ตรงกลางพอดี นับเป็นฝั่งขวา (x_min <= x)
+    GatePair(100, ("-", 100), ("+", 1)).on_reach(crowd)
+    assert crowd.count == 151
+
+
+# ---------- ศัตรู ----------
+
+def test_enemy_bigger_than_crowd():
+    crowd = Crowd(10)
+    enemy = EnemyGroup(100, 25)
+    enemy.on_reach(crowd)
+    assert crowd.count == 0 and enemy.count == 15 and enemy.used
+
+
+# ---------- ไฟล์ด่าน ----------
+
+def test_list_levels_numeric_order():
+    files = list_levels()
+    assert files[0] == "level1.json"
+    nums = [int("".join(ch for ch in f if ch.isdigit())) for f in files]
+    assert nums == sorted(nums)
+
+
+def test_build_object_unknown_type():
+    try:
+        build_object({"type": "dragon", "z": 1})
+    except ValueError:
+        return
+    raise AssertionError("type ที่ไม่รู้จักควร raise ValueError")
+
+
+def test_all_levels_valid():
+    """ทุกด่าน: โหลดได้, เรียงตาม z, ของอยู่บนถนนก่อนเส้นชัย, หลบสิ่งกีดขวางได้, ชนะได้จริง"""
+    for filename in list_levels():
+        level = load_level(filename)
+        zs = [o.z for o in level.objects]
+        assert zs == sorted(zs), filename
+        assert level.start_count > 0 and level.speed > 0, filename
+        assert zs and 0 < zs[0] and zs[-1] < level.finish_z, filename
+        for obj in level.objects:
+            if isinstance(obj, Obstacle):
+                # กว้างไม่เกินครึ่งถนน = มีช่องให้หลบเสมอ (สิ่งกีดขวางลบทุกคนที่โดน)
+                assert obj.width <= C.ROAD_HALF_W, f"{filename}: obstacle z={obj.z} กว้างเกิน"
+                assert abs(obj.x) <= C.ROAD_HALF_W, filename
+        assert best_count(level) > 0, f"{filename}: เลือกประตูดีที่สุดแล้วยังแพ้"
+
+
+def test_levels_get_harder():
+    """ด่านหลังๆ วิ่งเร็วขึ้น (หรือเท่าเดิม) และยาวขึ้น (หรือเท่าเดิม)"""
+    levels = [load_level(f) for f in list_levels()]
+    for a, b in zip(levels, levels[1:]):
+        assert b.speed >= a.speed or b.finish_z > a.finish_z, f"{b.name} ง่ายกว่า {a.name}"
+
+
+def test_best_count_level1():
+    # 10 -> +20=30 -> x3=90 -> +35=125 -> x2=250 -> สู้ศัตรู 40 = 210
+    assert best_count(load_level("level1.json")) == 210
+
+
+# ---------- ดาว + high score ----------
+
+def test_stars():
+    assert scores.stars(False, 100, 200) == 0
+    assert scores.stars(True, 0, 200) == 0
+    assert scores.stars(True, 10, 200) == 1
+    assert scores.stars(True, 50, 200) == 2
+    assert scores.stars(True, 100, 200) == 3
+    assert scores.stars(True, 5, 0) == 1        # กันหารศูนย์
+
+
+def test_highscore_save_and_keep_best(tmp_path=None):
+    import tempfile
+    folder = Path(tmp_path or tempfile.mkdtemp())
+    path = folder / "scores.json"
+    assert scores.load_scores(path) == {}                     # ยังไม่มีไฟล์
+    assert scores.record("level1.json", 50, 2, path)
+    assert not scores.record("level1.json", 30, 1, path)      # แย่กว่าเดิม ไม่ทับ
+    assert scores.record("level1.json", 80, 1, path)          # ดีกว่า: คนเพิ่ม แต่ดาวเก็บค่าสูงสุดไว้
+    assert scores.load_scores(path)["level1.json"] == {"count": 80, "stars": 2}
+    path.write_text("not json{", encoding="utf-8")            # ไฟล์เสีย ต้องไม่ทำเกมพัง
+    assert scores.load_scores(path) == {}
 
 
 if __name__ == "__main__":
