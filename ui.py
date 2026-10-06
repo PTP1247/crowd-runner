@@ -72,6 +72,10 @@ def draw_menu(screen, big, small, levels, selected, scores, unlocked):
                 label, (250, max(1, label.get_height() * 250 // label.get_width())))
         screen.blit(label, label.get_rect(midleft=(rect.x + 12, rect.centery)))
         best = scores.get(filename)
+        if filename == "endless":              # โหมดไม่รู้จบ: แสดงระยะทางไกลสุดแทนดาว
+            text = small.render(f"best {best['distance']}" if best else "new!", True, (190, 200, 230))
+            screen.blit(text, text.get_rect(midright=(rect.right - 10, rect.centery)))
+            continue
         draw_stars(screen, (rect.right - 95, rect.centery), best["stars"] if best else 0, r=8)
         if best:
             text = small.render(str(best["count"]), True, (190, 200, 230))
@@ -81,9 +85,12 @@ def draw_menu(screen, big, small, levels, selected, scores, unlocked):
     draw_text_center(screen, small, "Up/Down + SPACE, or click a level", hint_y + 34, (190, 200, 230))
 
 
-def draw_hud(screen, font, level, progress):
-    """progress: 0.0 - 1.0 ระยะทางที่วิ่งมาแล้ว"""
+def draw_hud(screen, font, level, progress, distance=None):
+    """progress: 0.0 - 1.0 ระยะทางที่วิ่งมาแล้ว   distance: โหมดไม่รู้จบ แสดงระยะทางมุมขวาบน"""
     screen.blit(font.render(level.name, True, C.BLACK), (12, 10))
+    if distance is not None:
+        text = font.render(f"{int(distance)} m", True, C.BLACK)
+        screen.blit(text, text.get_rect(topright=(C.SCREEN_W - 12, 10)))
     bar = pygame.Rect(12, 40, C.SCREEN_W - 24, 10)
     pygame.draw.rect(screen, C.WHITE, bar, border_radius=5)
     fill = bar.copy()
@@ -105,3 +112,18 @@ def draw_end(screen, big, small, won, count, star_count=0, best=None, new_record
     elif best:
         draw_text_center(screen, small, f"High score: {best['count']}", 470)
     draw_text_center(screen, small, "R: play again    M: level menu", 530)
+
+
+def draw_end_endless(screen, big, small, distance, best, new_record, reached):
+    """หน้าจบโหมดไม่รู้จบ  best: {"distance": ..} เดิม หรือ None   reached: ระดับความยากที่ไปถึง"""
+    overlay = pygame.Surface((C.SCREEN_W, C.SCREEN_H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    screen.blit(overlay, (0, 0))
+    draw_text_center(screen, big, "GAME OVER", 300)
+    draw_text_center(screen, big, f"{int(distance)} m", 370, STAR_ON)
+    draw_text_center(screen, small, f"Reached Lv {reached}", 430)
+    if new_record:
+        draw_text_center(screen, small, "NEW BEST DISTANCE!", 470, STAR_ON)
+    elif best:
+        draw_text_center(screen, small, f"Best: {best['distance']} m", 470)
+    draw_text_center(screen, small, "R: run again    M: level menu", 530)

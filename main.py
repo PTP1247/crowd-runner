@@ -7,6 +7,7 @@ State machine:  MENU --(เลือกด่าน: space/click)--> PLAYING --(
                 WIN/LOSE --(R)--> PLAYING ด่านเดิม,  --(M)--> MENU
 """
 import sys
+import math
 import random
 import bisect
 import pygame
@@ -17,6 +18,7 @@ import scores
 from camera import Camera
 from crowd import Crowd
 from level import load_level, list_levels, best_count
+from endless import EndlessLevel
 
 MENU, PLAYING, WIN, LOSE = "menu", "playing", "win", "lose"
 
@@ -34,20 +36,25 @@ class Game:
         self.tuft_sprites = self.make_tuft_sprites()
         self.clouds = self.make_clouds()
         self.level_files = list_levels()
-        self.level_names = [(f, load_level(f).name) for f in self.level_files]
+        # แถวในเมนู: ด่านปกติทุกด่าน + โหมดไม่รู้จบเป็นแถวสุดท้าย
+        self.menu = [(f, load_level(f).name) for f in self.level_files] + [(scores.ENDLESS, "Endless Mode")]
         self.selected = 0                       # index ด่านที่เลือกในเมนู
         self.scores = scores.load_scores()
         self.state = MENU
         self.reset()
 
     def reset(self):
-        self.level = load_level(self.level_files[self.selected])
+        self.level = EndlessLevel() if self.endless else load_level(self.level_files[self.selected])
         self.result = None   # (ดาว, high score เดิม, สถิติใหม่ไหม) ตั้งค่าตอนจบด่าน
-        self.best = best_count(self.level)   # คิดก่อนเล่น เพราะตอนปะทะ enemy.count จะลดลง
+        self.best = None if self.endless else best_count(self.level)   # คิดก่อนเล่น เพราะตอนปะทะ enemy.count จะลดลง
         self.crowd = Crowd(self.level.start_count)
         self.camera.z = 0.0
         self.next_index = 0  # object ถัดไปใน level.objects ที่กลุ่มคนยังไม่ถึง
         self.make_tufts()
+
+    @property
+    def endless(self):
+        return self.selected == len(self.level_files)
 
     # ---------------- สร้างลายพิกเซล ----------------
     def make_road_rows(self, w=96, h=128):
@@ -88,15 +95,22 @@ class Game:
         return sprites
 
     def make_tufts(self):
-        """สุ่มตำแหน่งกอหญ้าตลอดด่าน (ซ้าย-ขวานอกถนน) เรียงตาม z ไว้ล่วงหน้า"""
-        rng = random.Random(11)
-        self.tufts = []
-        for z in range(0, int(self.level.finish_z) + 400, 40):
+        """สุ่มตำแหน่งกอหญ้าตลอดด่าน (ซ้าย-ขวานอกถนน) เรียงตาม z ไว้ล่วงหน้า
+        โหมดไม่รู้จบไม่มีเส้นชัย: สร้างแค่ช่วงแรก แล้ว update() ต่อเพิ่มด้วย extend_tufts()"""
+        self.tuft_rng = random.Random(11)
+        self.tufts, self.tuft_zs, self.tuft_end = [], [], 0
+        end = self.level.finish_z if math.isfinite(self.level.finish_z) else C.Z_FAR
+        self.extend_tufts(end + 400)
+
+    def extend_tufts(self, end_z):
+        rng = self.tuft_rng
+        for z in range(self.tuft_end, int(end_z), 40):
             for _ in range(2):
                 side = rng.choice((-1, 1))
                 x = side * rng.uniform(C.ROAD_HALF_W + 30, C.ROAD_HALF_W + 700)
                 self.tufts.append((z, x, rng.randrange(len(self.tuft_sprites))))
-        self.tuft_zs = [t[0] for t in self.tufts]
+                self.tuft_zs.append(z)
+            self.tuft_end = z + 40
 
     def make_clouds(self):
         """เมฆก้อนเหลี่ยมแบบพิกเซล"""
@@ -156,7 +170,7 @@ class Game:
                         self.reset()
                         self.state = MENU
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.state == MENU:
-                for i in range(len(self.level_files)):
+                for i in range(len(self.menu)):
                     if ui.menu_row_rect(i).collidepoint(event.pos) and self.unlocked(i):
                         self.selected = i
                         self.start_level()
@@ -171,11 +185,13 @@ class Game:
                 self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
 
     def unlocked(self, i):
+        if i == len(self.level_files):          # โหมดไม่รู้จบ เล่นได้เสมอ
+            return True
         return i < len(self.level_files) and scores.is_unlocked(self.level_files, i, self.scores)
 
     def move_selection(self, step):
         """เลื่อนไปด่านที่ปลดล็อกแล้วถัดไป (ข้ามด่านที่ล็อก วนรอบได้)"""
-        n = len(self.level_files)
+        n = len(self.menu)
         i = self.selected
         for _ in range(n):
             i = (i + step) % n
@@ -189,6 +205,14 @@ class Game:
 
     def finish_level(self, won):
         """เรียกครั้งเดียวตอนจบด่าน: คิดดาว + บันทึก high score"""
+        if self.endless:                        # ไม่รู้จบ: จบได้ทางเดียวคือแพ้ คะแนน = ระยะทาง
+            distance = int(self.level.distance(self.crowd.z))
+            old = self.scores.get(scores.ENDLESS)
+            new_record = scores.record_distance(distance)
+            self.scores = scores.load_scores()
+            self.result = (distance, old, new_record, self.level.difficulty(self.crowd.z) + 1)
+            self.state = LOSE
+            return
         filename = self.level_files[self.selected]
         count = self.crowd.count if won else 0
         star_count = scores.stars(won, count, self.best)
@@ -206,6 +230,9 @@ class Game:
         self.camera.z += self.level.speed * self.dt
         self.crowd.z = self.camera.z + C.CROWD_OFFSET
         self.crowd.update(self.dt)
+        if self.endless:   # สร้างถนนช่วงถัดไป + ทิ้งของที่ผ่านไปแล้ว (next_index เลื่อนตาม)
+            self.next_index = self.level.advance(self.crowd.z, self.crowd.count, self.next_index)
+            self.extend_tufts(self.camera.z + C.Z_FAR + 400)
 
         # ตรวจว่ากลุ่มคนวิ่ง "ถึง/เลย" object ไหนบ้างในเฟรมนี้
         # ใช้ >= แทน == เพราะ z เพิ่มทีละหลาย unit ต่อเฟรม อาจกระโดดข้ามค่าพอดีไป
@@ -298,14 +325,18 @@ class Game:
 
     def draw(self):
         if self.state == MENU:
-            unlocked = [self.unlocked(i) for i in range(len(self.level_files))]
-            ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores,
-                         unlocked)
+            unlocked = [self.unlocked(i) for i in range(len(self.menu))]
+            ui.draw_menu(self.screen, self.big_font, self.font, self.menu, self.selected, self.scores, unlocked)
         else:
             self.draw_world()
-            progress = self.crowd.z / self.level.finish_z
-            ui.draw_hud(self.screen, self.font, self.level, progress)
-            if self.state in (WIN, LOSE):
+            if self.endless:
+                ui.draw_hud(self.screen, self.font, self.level, self.level.progress(self.crowd.z),
+                            self.level.distance(self.crowd.z))
+                if self.state == LOSE:
+                    ui.draw_end_endless(self.screen, self.big_font, self.font, *self.result)
+            else:
+                ui.draw_hud(self.screen, self.font, self.level, self.crowd.z / self.level.finish_z)
+            if self.state in (WIN, LOSE) and not self.endless:
                 ui.draw_end(self.screen, self.big_font, self.font, self.state == WIN, self.crowd.count,
                             *self.result)
         pygame.display.flip()

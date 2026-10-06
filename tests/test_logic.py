@@ -14,6 +14,8 @@ from obstacle import Obstacle
 from enemy import EnemyGroup
 import config as C
 import scores
+import endless
+from itertools import product
 from gate import GatePair
 from level import load_level, list_levels, best_count, build_object
 
@@ -166,6 +168,91 @@ def test_unlock_needs_previous_win():
     won1 = {"level1.json": {"count": 10, "stars": 1}}
     assert scores.is_unlocked(files, 1, won1)
     assert not scores.is_unlocked(files, 2, won1)              # ข้ามด่านไม่ได้
+
+
+# ---------- โหมดไม่รู้จบ ----------
+
+def brute_force_routes(start, objects):
+    """ลองทุกเส้นทางทีละเส้นแบบตรงไปตรงมา ใช้ตรวจ endless.winning_routes"""
+    pairs = [o for o in objects if isinstance(o, GatePair)]
+    wins = 0
+    for choice in product((0, 1), repeat=len(pairs)):
+        pick, count = iter(choice), start
+        for o in objects:
+            if isinstance(o, GatePair):
+                count = (o.right if next(pick) else o.left).apply(count)
+            elif isinstance(o, EnemyGroup):
+                count = max(0, count - o.count)
+        wins += count > 0
+    return wins, 2 ** len(pairs)
+
+
+def test_winning_routes_matches_brute_force():
+    for filename in list_levels():
+        level = load_level(filename)
+        assert endless.winning_routes(level.start_count, level.objects) == \
+            brute_force_routes(level.start_count, level.objects), filename
+
+
+def play_endless(seed, chunks):
+    """ผู้เล่นที่เลือกประตูดีที่สุดเสมอ (หลบสิ่งกีดขวางได้หมด) วิ่งไป chunks ช่วง  คืน (level, จำนวนคน, ทุกจำนวนระหว่างทาง)"""
+    level = endless.EndlessLevel(seed=seed)
+    count, idx, z, seen = endless.START_COUNT, 0, float(C.CROWD_OFFSET), []
+    speeds = []
+    while z < C.CROWD_OFFSET + chunks * endless.CHUNK_LEN:
+        z += 25
+        idx = level.advance(z, count, idx)
+        speeds.append(level.speed)
+        zs = [o.z for o in level.objects]
+        assert zs == sorted(zs)
+        while idx < len(level.objects) and z >= level.objects[idx].z:
+            o = level.objects[idx]
+            if isinstance(o, GatePair):
+                count = max(o.left.apply(count), o.right.apply(count))
+            elif isinstance(o, EnemyGroup):
+                count = max(0, count - o.count)
+            idx += 1
+            seen.append(count)
+        assert count > 0, f"seed {seed}: เลือกถูกทุกครั้งแล้วยังแพ้ที่ z={z}"
+    assert speeds == sorted(speeds)                          # เร็วขึ้นเรื่อยๆ ไม่ช้าลง
+    return level, count, seen
+
+
+def test_endless_always_winnable_and_bounded():
+    for seed in range(5):
+        level, count, seen = play_endless(seed, 20)
+        assert max(seen) <= endless.COUNT_CAP                  # คนไม่ล้นจนเกมช้า
+        assert len(level.objects) < 40                         # ของที่ผ่านไปแล้วถูกทิ้ง
+        for chunk in level.chunks:
+            assert chunk["wins"] >= 1                          # ทุกช่วงมีทางชนะ
+
+
+def test_endless_gets_harder():
+    level, _, _ = play_endless(seed=7, chunks=20)
+    ratios = [c["wins"] / c["total"] for c in level.chunks]
+    assert sum(ratios[:3]) / 3 > 0.5                           # ช่วงแรก: ทางชนะเกินครึ่ง
+    assert sum(ratios[12:18]) / 6 < 0.2                        # ช่วงหลัง: เหลือไม่ถึง 20%
+    for c in level.chunks:                                     # ได้ใกล้เป้าแต่ละช่วง
+        assert abs(c["wins"] / c["total"] - c["target"]) < 0.15, c
+    assert endless.speed_for(10) > endless.speed_for(0)
+
+
+def test_endless_obstacles_dodgeable():
+    level = endless.EndlessLevel(seed=3)
+    for k in range(30):
+        level.make_chunk(50, len(level.objects))
+    for o in level.objects:
+        if isinstance(o, Obstacle):
+            assert o.width <= C.ROAD_HALF_W and abs(o.x) + o.width / 2 <= C.ROAD_HALF_W
+
+
+def test_endless_best_distance():
+    import tempfile
+    path = Path(tempfile.mkdtemp()) / "scores.json"
+    assert scores.record_distance(1234.7, path)
+    assert not scores.record_distance(900, path)
+    assert scores.record_distance(5000, path)
+    assert scores.load_scores(path)[scores.ENDLESS] == {"distance": 5000}
 
 
 if __name__ == "__main__":

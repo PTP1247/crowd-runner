@@ -54,3 +54,21 @@ def record(level_file, count, star_count, path=None):
 def is_unlocked(level_files, i, scores):
     """ด่านแรกเล่นได้เสมอ ด่านอื่นต้องชนะด่านก่อนหน้าก่อน (มีคะแนนบันทึกไว้ = เคยชนะ)"""
     return i == 0 or level_files[i - 1] in scores
+
+
+ENDLESS = "endless"   # key ใน highscores.json ของโหมดไม่รู้จบ (เก็บระยะทาง ไม่ใช่จำนวนคน)
+
+
+def record_distance(distance, path=None):
+    """โหมดไม่รู้จบ: บันทึกระยะทางถ้าไกลกว่าเดิม คืน True ถ้าเป็นสถิติใหม่"""
+    scores = load_scores(path)
+    distance = int(distance)
+    if distance <= scores.get(ENDLESS, {}).get("distance", 0):
+        return False
+    scores[ENDLESS] = {"distance": distance}
+    try:
+        with open(path or SCORE_FILE, "w", encoding="utf-8") as f:
+            json.dump(scores, f, indent=2)
+    except OSError:
+        pass
+    return True
