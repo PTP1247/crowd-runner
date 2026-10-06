@@ -40,4 +40,28 @@ def load_level(filename):
     return Level(data["name"], data["start_count"], data["speed"], data["finish_z"], objects)
 
 
-# TODO(C): list_levels() คืนชื่อไฟล์ด่านทั้งหมดใน levels/ เพื่อทำเมนูเลือกด่าน
+def list_levels():
+    """คืนชื่อไฟล์ด่านทั้งหมดใน levels/ เรียงตามเลข (level2 มาก่อน level10)
+
+    ทำไมไม่ใช้ sorted() ธรรมดา: เรียงแบบตัวอักษรจะได้ level1, level10, level2, ...
+    """
+    def number(path):
+        digits = "".join(ch for ch in path.stem if ch.isdigit())
+        return int(digits) if digits else 0
+    return [p.name for p in sorted(LEVEL_DIR.glob("*.json"), key=lambda p: (number(p), p.name))]
+
+
+def best_count(level):
+    """จำนวนคนมากที่สุดที่เป็นไปได้ตอนถึงเส้นชัย (เลือกประตูดีที่สุดทุกบาน, หลบสิ่งกีดขวางได้หมด)
+
+    ทำไมเลือกบานที่ได้มากสุดทีละบานแล้วได้คำตอบที่ดีที่สุด: ทุกตัวดำเนินการ (+ - x /)
+    และการปะทะศัตรู ยิ่งเริ่มด้วยคนมาก ผลก็ยิ่งมาก (ไม่มีทางที่คนน้อยกว่าตอนนี้แล้วจะได้มากกว่าทีหลัง)
+    ใช้เป็นฐานคิดดาว และใช้ใน test ตรวจว่าทุกด่านชนะได้จริง
+    """
+    count = level.start_count
+    for obj in level.objects:
+        if isinstance(obj, GatePair):
+            count = max(obj.left.apply(count), obj.right.apply(count))
+        elif isinstance(obj, EnemyGroup):
+            count = max(0, count - obj.count)
+    return count
