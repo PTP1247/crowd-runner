@@ -19,6 +19,6 @@
     {"type": "obstacle",  "z": 5250, "x": -60, "width": 150, "damage": 100},
     {"type": "obstacle",  "z": 5600, "x": 60,  "width": 150, "damage": 100},
     {"type": "obstacle",  "z": 5950, "x": 0,   "width": 150, "damage": 40},
-    {"type": "enemy",     "z": 6500, "count": 420}
+    {"type": "enemy",     "z": 6500, "count": 800}
   ]
 }

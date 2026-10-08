@@ -15,7 +15,9 @@ from enemy import EnemyGroup
 import config as C
 import scores
 from gate import GatePair
-from level import load_level, list_levels, best_count, build_object
+from level import (load_level, list_levels, best_count, build_object,
+                   run_count, fatal_gates, max_wrong_picks, difficulty,
+                   dodge_spans, obstacle_style)
 
 
 def test_gate_ops():
@@ -123,6 +125,57 @@ def test_all_levels_valid():
         assert best_count(level) > 0, f"{filename}: เลือกประตูดีที่สุดแล้วยังแพ้"
 
 
+def test_obstacles_random_but_on_road():
+    """ลายสิ่งกีดขวางสุ่มใหม่ทุกครั้งที่โหลด แต่ขอบต้องไม่หลุดถนนตลอดการแกว่ง"""
+    import random
+    for filename in list_levels():
+        for seed in range(20):
+            for obj in load_level(filename, random.Random(seed)).objects:
+                if isinstance(obj, Obstacle):
+                    reach = abs(obj.start_x) + obj.amplitude + obj.width / 2
+                    assert reach <= C.ROAD_HALF_W + 1e-9, f"{filename}: obstacle z={obj.z} หลุดถนน"
+    layouts = {tuple(round(o.x) for o in load_level("level8.json", random.Random(s)).objects
+                     if isinstance(o, Obstacle)) for s in range(5)}
+    assert len(layouts) > 1, "เล่นแต่ละรอบควรได้ลายสิ่งกีดขวางต่างกัน"
+
+
+def test_obstacles_passable_and_scale_with_difficulty():
+    """สุ่มสิ่งกีดขวางแล้วต้องหลบพ้นได้เสมอ (บนเส้นทางเลือกประตูดีที่สุด) และด่านยากได้สิ่งกีดขวางโหดกว่า"""
+    import random
+    for filename in list_levels():
+        for seed in range(10):
+            level = load_level(filename, random.Random(seed))
+            assert dodge_spans(level), f"{filename} seed {seed}: มีสิ่งกีดขวางที่หลบไม่ทัน"
+    easy, hard = obstacle_style(load_level("level1.json")), obstacle_style(load_level("level10.json"))
+    assert easy[0][1] < hard[0][1]          # กว้างได้มากกว่า
+    assert easy[1][2] < hard[1][2]          # โอกาสได้ลายแกว่งเร็วมากกว่า
+    assert easy[3] > hard[3]                # ช่องหลบแคบกว่า
+
+
+def test_dodge_spans_detects_blocked_road():
+    level = load_level("level1.json")
+    for obj in level.objects:
+        if isinstance(obj, Obstacle):       # ขวางกลางถนนทั้งเส้น หลบไม่ได้แน่นอน
+            obj.width, obj.start_x, obj.amplitude = 2 * C.ROAD_HALF_W, 0, 0
+    assert dodge_spans(level) == []
+
+
+def test_random_gates_keep_difficulty():
+    """สุ่มเลขประตู + สลับซ้าย/ขวาแล้ว ความยากต้องเท่ากับด่านตามไฟล์ และเลขต้องเปลี่ยนจริง"""
+    import random
+
+    def labels(level):
+        return [(o.left.label(), o.right.label()) for o in level.objects if isinstance(o, GatePair)]
+
+    for filename in list_levels():
+        original = load_level(filename)
+        variants = [load_level(filename, random.Random(seed)) for seed in range(10)]
+        for level in variants:
+            assert difficulty(level) == difficulty(original), filename
+            assert best_count(level) > 0, filename
+        assert any(labels(v) != labels(original) for v in variants), f"{filename}: เลขประตูไม่เคยเปลี่ยน"
+
+
 def test_levels_get_harder():
     """ด่านหลังๆ วิ่งเร็วขึ้น (หรือเท่าเดิม) และยาวขึ้น (หรือเท่าเดิม)"""
     levels = [load_level(f) for f in list_levels()]
@@ -130,9 +183,39 @@ def test_levels_get_harder():
         assert b.speed >= a.speed or b.finish_z > a.finish_z, f"{b.name} ง่ายกว่า {a.name}"
 
 
+# ด่านถัดไปง่ายกว่าด่านที่ยากที่สุดก่อนหน้าได้ไม่เกินเท่านี้ (เผื่อด่าน "พักหายใจ" หลังด่านยาก)
+DIFFICULTY_DIP = 5
+
+
+def test_difficulty_increases():
+    """คะแนนความยาก (level.difficulty) ต้องไม่ต่ำกว่าด่านที่ยากที่สุดก่อนหน้าเกิน DIFFICULTY_DIP
+
+    ทำไมเทียบกับด่านที่ยากที่สุด ไม่ใช่แค่ด่านก่อนหน้า: กันความยากค่อยๆ ไหลลงทีละนิดหลายด่านติดกัน
+    """
+    hardest, bad = None, []
+    for filename in list_levels():
+        level = load_level(filename)
+        score = difficulty(level)
+        if hardest and score < hardest[1] - DIFFICULTY_DIP:
+            bad.append(f"{level.name} ({score}) ง่ายกว่า {hardest[0]} ({hardest[1]})")
+        if not hardest or score > hardest[1]:
+            hardest = (level.name, score)
+    assert not bad, "\n".join(bad)
+
+
+def test_difficulty_level1():
+    level = load_level("level1.json")
+    assert run_count(level) == best_count(level) == 155
+    assert run_count(level, {0}) == 95            # เลือก x2 แทน +20 ยังรอด
+    assert run_count(level, {2}) == 0             # เลือก /3 แทน +35 แพ้
+    assert fatal_gates(level) == [2]
+    assert max_wrong_picks(level) == 2
+    assert difficulty(level) == 24.3              # 40*(1/4) + 25*(1/3) + 15*0 + 20*(3/10)
+
+
 def test_best_count_level1():
-    # 10 -> +20=30 -> x3=90 -> +35=125 -> x2=250 -> สู้ศัตรู 40 = 210
-    assert best_count(load_level("level1.json")) == 210
+    # 10 -> +20=30 -> x3=90 -> +35=125 -> x2=250 -> สู้ศัตรู 95 = 155
+    assert best_count(load_level("level1.json")) == 155
 
 
 # ---------- ดาว + high score ----------

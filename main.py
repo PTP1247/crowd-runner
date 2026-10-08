@@ -42,7 +42,7 @@ class Game:
         self.reset()
 
     def reset(self):
-        self.level = load_level(self.level_files[self.selected])
+        self.level = load_level(self.level_files[self.selected], random)   # สุ่มประตู+สิ่งกีดขวางใหม่ทุกรอบ
         self.result = None   # (ดาว, high score เดิม, สถิติใหม่ไหม) ตั้งค่าตอนจบด่าน
         self.best = best_count(self.level)   # คิดก่อนเล่น เพราะตอนปะทะ enemy.count จะลดลง
         self.crowd = Crowd(self.level.start_count)
