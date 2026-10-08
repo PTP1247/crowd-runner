@@ -53,8 +53,9 @@ class Obstacle:
 
     def on_reach(self, crowd):
         # คนที่ตำแหน่งจริงอยู่ในช่วงความกว้างของสิ่งกีดขวาง = โดนชนจริง
+        k = crowd.spread()
         victims = [p for p in crowd.people
-                   if abs(crowd.x + p.dx - self.x) <= self.width / 2]
+                   if abs(crowd.x + p.dx * k - self.x) <= self.width / 2]
         crowd.remove(victims)
 
     def draw(self, screen, camera, font):

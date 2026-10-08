@@ -6,6 +6,25 @@ import config as C
 SYMBOLS = {"+": "+", "-": "-", "x": "×", "/": "÷"}
 
 
+_label_cache = {}
+
+
+def label_image(font, label, scale):
+    """ตัวเลขบนประตู ย่อตามระยะให้ดูไกล-ใกล้สมจริง
+    เก็บภาพไว้ใช้ซ้ำ (ปัด scale ทีละ 0.05) เพราะ render + smoothscale ทุกเฟรมช้า"""
+    step = max(1, round(scale * 20))
+    key = (id(font), label, step)
+    image = _label_cache.get(key)
+    if image is None:
+        if len(_label_cache) > 1000:
+            _label_cache.clear()
+        text = font.render(label, True, C.WHITE)
+        k = step / 20
+        image = _label_cache[key] = pygame.transform.smoothscale(
+            text, (max(1, int(text.get_width() * k)), max(1, int(text.get_height() * k))))
+    return image
+
+
 class Gate:
     """ประตูบานเดียว ครอบคลุมถนนตั้งแต่ x_min ถึง x_max"""
 
@@ -67,8 +86,5 @@ class GatePair:
             surf = pygame.Surface(rect.size, pygame.SRCALPHA)
             surf.fill((*color, 150))  # โปร่งแสงให้เห็นคนข้างหลัง
             screen.blit(surf, rect.topleft)
-            text = font.render(gate.label(), True, C.WHITE)
-            # ย่อตัวเลขตามระยะ ให้ดูไกล-ใกล้สมจริง
-            size = max(1, int(text.get_width() * min(scale, 1.5))), max(1, int(text.get_height() * min(scale, 1.5)))
-            text = pygame.transform.smoothscale(text, size)
+            text = label_image(font, gate.label(), min(scale, 1.5))
             screen.blit(text, text.get_rect(center=rect.center))

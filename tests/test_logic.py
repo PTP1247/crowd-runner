@@ -38,6 +38,19 @@ def test_obstacle_hit_and_miss():
     assert crowd.count == 0
 
 
+def test_big_crowd_simulates_sample():
+    """คนเยอะจำลองแค่ตัวแทน SIM_PEOPLE คน แต่นับจำนวนจริงครบ และโดนชนแล้วเสียตามสัดส่วน"""
+    crowd = Crowd(1000)
+    assert crowd.count == 1000 and len(crowd.people) == C.SIM_PEOPLE
+    lost = crowd.remove(crowd.people[: C.SIM_PEOPLE // 2])      # ตัวแทนโดนครึ่งหนึ่ง
+    assert lost == 500 and crowd.count == 500
+    assert len(crowd.people) == C.SIM_PEOPLE                     # เติมตัวแทนกลับให้ครบ
+    crowd.count = 40                                             # คนน้อย: ตัวแทน = คนจริง 1 ต่อ 1
+    assert len(crowd.people) == 40 and crowd.spread() == 1
+    assert crowd.remove(crowd.people[:3]) == 3 and crowd.count == 37
+    assert crowd.remove(list(crowd.people)) == 37 and crowd.count == 0
+
+
 def test_enemy_fight():
     crowd = Crowd(50)
     EnemyGroup(100, 40).on_reach(crowd)

@@ -19,8 +19,8 @@ from crowd import Crowd
 from level import load_level, list_levels, best_count
 
 MENU, PLAYING, WIN, LOSE = "menu", "playing", "win", "lose"
+ROAD_STRIP_PX = 2      # ลายอิฐบนถนน: แต่ละแถบสูงบนจอประมาณกี่พิกเซล (น้อย = เนียนแต่ช้า)
 
-#hello
 class Game:
     def __init__(self):
         pygame.init()
@@ -32,6 +32,7 @@ class Game:
         self.camera = Camera()
         self.road_rows = self.make_road_rows()   # ลายถนนอิฐ (หั่นเป็นแถวไว้ล่วงหน้า)
         self.tuft_sprites = self.make_tuft_sprites()
+        self.tuft_cache = {}                     # (แบบ, กว้าง) -> กอหญ้าที่ย่อแล้ว
         self.clouds = self.make_clouds()
         self.level_files = list_levels()
         self.level_names = [(f, load_level(f).name) for f in self.level_files]
@@ -258,7 +259,10 @@ class Game:
             sx, sy, s = cam.project(x, z)
             w = int(9 * 3 * s)
             if w >= 2:
-                sprite = pygame.transform.scale(self.tuft_sprites[k], (w, max(1, int(w * 6 / 9))))
+                sprite = self.tuft_cache.get((k, w))
+                if sprite is None:
+                    sprite = self.tuft_cache[(k, w)] = pygame.transform.scale(
+                        self.tuft_sprites[k], (w, max(1, int(w * 6 / 9))))
                 self.screen.blit(sprite, (sx - w // 2, sy - sprite.get_height()))
 
         # ถนน = สี่เหลี่ยมคางหมูจากใกล้ไปไกล (ในโหมด flat จะกลายเป็นสี่เหลี่ยมผืนผ้าเอง)
@@ -267,11 +271,14 @@ class Game:
         pygame.draw.polygon(self.screen, C.ROAD, corners)   # พื้นรองกันช่องโหว่
 
         # ลายอิฐบนถนน: หั่นเป็นแถบบางๆ ตามแกน z ความกว้างแต่ละแถบตาม perspective
-        step, tile = 4, 200            # step = ความหนาแถบ (น้อย = เนียนแต่ช้า) / tile = ความยาวลายต่อรอบ
+        # ความหนาแถบปรับตามระยะ: ให้แต่ละแถบสูงบนจอ ~ROAD_STRIP_PX พิกเซล (ไกลๆ แถบเดียวคลุมหลายร้อย unit)
+        # ทำไม: เดิมหั่นทีละ 4 unit เสมอ = ~500 แถบ/เฟรม ส่วนใหญ่สูงไม่ถึง 1 พิกเซล เปลืองเวลาเปล่าๆ
+        min_step, tile = 4, 200        # min_step = แถบบางสุด (world unit) / tile = ความยาวลายต่อรอบ
         n = len(self.road_rows)
         z = near
         while z < far:
-            z1 = min(z + step, far)
+            dy = abs(cam.project(0, z + 1)[1] - cam.project(0, z)[1]) or 1e-6   # พิกเซลต่อ 1 unit ตรงนี้
+            z1 = min(z + max(min_step, ROAD_STRIP_PX / dy), far)
             xl, y0, _ = cam.project(-C.ROAD_HALF_W, z)
             xr, _, _ = cam.project(C.ROAD_HALF_W, z)
             _, y1, _ = cam.project(0, z1)

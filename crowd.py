@@ -25,7 +25,9 @@ class Crowd:
         self.x = 0.0              # ตำแหน่งซ้าย-ขวาในโลก
         self.z = 0.0              # main.py อัปเดตให้ = camera.z + CROWD_OFFSET ทุกเฟรม
         self.target_x = None      # ถ้าคุมด้วยเมาส์ จะเลื่อนเข้าหาจุดนี้
-        self.people = []
+        self.people = []          # คนที่จำลองฟิสิกส์จริง (ไม่เกิน C.SIM_PEOPLE) ใช้วาด + เช็กชน
+        self._count = 0           # จำนวนคนจริง อาจมากกว่า len(people) มาก
+        self.sprite_cache = {}    # (เฟรม, กว้าง, สูง) -> ภาพที่ย่อแล้ว
 
         # ==========================================
         # 1. ส่วนค้นหาและโหลดไฟล์ภาพ (ของคุณ Setthawut เดิม)
@@ -95,41 +97,66 @@ class Crowd:
         self.set_count(count)
 
 
+    # ทำไมไม่จำลองทุกคน: ฟิสิกส์คิดทีละคนทุกเฟรม คน 3000 คนใช้ ~25 ms/เฟรม (เกินงบ 16.7 ms ของ 60 FPS)
+    # จึงจำลองแค่ไม่เกิน C.SIM_PEOPLE คนเป็น "ตัวแทน" แล้วขยายระยะห่างด้วย spread()
+    # ให้ก้อนกว้างเท่ากับคนจริงทั้งหมด  คนตัวแทน 1 คนโดนชน = เสียคนจริงตามสัดส่วน
+
     @property
     def count(self):              # จำนวนจริง (ใช้คำนวณ)
-        return len(self.people)
+        return self._count
 
     @count.setter
     def count(self, n):
         self.set_count(n)
 
     def set_count(self, n):
-        n = max(0, int(n))
-        while len(self.people) < n:
+        self._count = max(0, int(n))
+        sim = min(self._count, C.SIM_PEOPLE)
+        while len(self.people) < sim:
             self.people.append(Person(random.uniform(-5, 5), random.uniform(-5, 5)))
-        del self.people[n:]
+        del self.people[sim:]
+
+    def spread(self):
+        """ตัวคูณระยะของคนตัวแทน -> ระยะจริง
+        ยกกำลัง 0.4 (ไม่ใช่ 0.5): วัดแล้วตอนจำลองทุกคน ก้อนใหญ่อัดแน่นกว่าสูตรพื้นที่ล้วน
+        ค่านี้ทำให้ความกว้างก้อนใกล้ของเดิม (1000 คน แผ่ข้างละ ~60)"""
+        return (self._count / len(self.people)) ** 0.4 if self.people else 1.0
+
+    def offset(self, p):
+        """ตำแหน่ง (dx, dz) จริงของคนตัวแทน p เทียบกับศูนย์กลางก้อน"""
+        k = self.spread()
+        return p.dx * k, p.dz * k
 
     def add(self, n):
         self.set_count(self.count + n)
 
     def remove(self, people):
+        """เอาคนตัวแทนใน people ออก แล้วหักคนจริงตามสัดส่วน คืนจำนวนคนจริงที่เสียไป"""
         gone = set(map(id, people))
+        n_sim = len(self.people)
+        hit = sum(1 for p in self.people if id(p) in gone)
+        if not hit:
+            return 0
+        k = self.spread()
+        lost = self._count if hit == n_sim else round(self._count * hit / n_sim)
         self.people = [p for p in self.people if id(p) not in gone]
-        
+        self.set_count(self._count - lost)     # ก้อนใหญ่: เติมคนตัวแทนกลับให้ครบ
+
         # 📌 เพิ่มระบบ "จัดสมดุลศูนย์ถ่วงใหม่ (Center of Mass)"
-        if self.count > 0:
+        if self.people:
             # 1. หาพิกัดเฉลี่ย (จุดกึ่งกลางที่แท้จริง) ของคนที่รอดชีวิต
-            avg_dx = sum(p.dx for p in self.people) / self.count
-            avg_dz = sum(p.dz for p in self.people) / self.count
-            
+            avg_dx = sum(p.dx for p in self.people) / len(self.people)
+            avg_dz = sum(p.dz for p in self.people) / len(self.people)
+
             # 2. ขยับตำแหน่งกลุ่ม (self.x) ให้วิ่งตามไปหาคนที่รอดชีวิต
-            self.x += avg_dx
+            self.x += avg_dx * k
             
             # 3. ปรับระยะของคนแต่ละคนให้สัมพันธ์กับศูนย์กลางใหม่
             # (ไม่ต้องห่วง ภาพจะไม่กระตุกเลย แต่มันจะทำให้แรงดึงดูดกลับมาสมดุลทันที!)
             for p in self.people:
                 p.dx -= avg_dx
                 p.dz -= avg_dz
+        return lost
 
 
     def radius(self):
@@ -162,7 +189,7 @@ class Crowd:
         self.last_x = self.x  # เซฟตำแหน่งปัจจุบันไว้ใช้ในเฟรมถัดไป
 
         # --- โค้ดฟิสิกส์ด้านล่าง ปล่อยให้มันทำงานตามเดิมเลยครับ ---
-        target_r = C.PERSON_SPACING * math.sqrt(self.count) * 0.8
+        target_r = C.PERSON_SPACING * math.sqrt(len(self.people)) * 0.8
         for p in self.people:
             fx = fz = 0.0
             # ดึงเข้าหาศูนย์กลาง
@@ -173,7 +200,7 @@ class Crowd:
                 fz -= p.dz / d * pull
             
             # ผลักคนใกล้เคียง
-            for q in random.sample(self.people, min(self.count, 8)):
+            for q in random.sample(self.people, min(len(self.people), 8)):
                 if q is p:
                     continue
                 ddx, ddz = p.dx - q.dx, p.dz - q.dz
@@ -199,8 +226,9 @@ class Crowd:
 
     def draw(self, screen, camera, font):
         # วาดจากคนที่อยู่ไกล (dz มาก) ก่อน ให้คนหน้าบังคนหลัง
+        k = self.spread()
         for p in sorted(self.people[:C.MAX_DRAWN_PEOPLE], key=lambda p: -p.dz):
-            sx, sy, scale = camera.project(self.x + p.dx, self.z + p.dz)
+            sx, sy, scale = camera.project(self.x + p.dx * k, self.z + p.dz * k)
             
             # 📌 1. เลือก "กลุ่มลิ้นชักภาพที่หั่นไว้แล้ว" ตามทิศทางการวิ่ง
              # ในฟังก์ชัน draw
@@ -221,7 +249,13 @@ class Crowd:
             # 📌 4. ย่อ/ขยายรูปภาพตัวละครตามระยะลึก (3D Scale)
             new_w = max(1, int(self.frame_width * scale))
             new_h = max(1, int(self.frame_height * scale))
-            scaled_sprite = pygame.transform.scale(frame_surface, (new_w, new_h))
+            # ย่อภาพครั้งเดียวต่อขนาด แล้วเก็บไว้ใช้ซ้ำ (scale ทุกคนทุกเฟรมกินเวลามาก)
+            key = (id(frame_surface), new_w, new_h)
+            scaled_sprite = self.sprite_cache.get(key)
+            if scaled_sprite is None:
+                if len(self.sprite_cache) > 2000:
+                    self.sprite_cache.clear()
+                scaled_sprite = self.sprite_cache[key] = pygame.transform.scale(frame_surface, (new_w, new_h))
             
             # 📌 5. คำนวณจังหวะตัวเด้ง (Bobbing) ขึ้นลง
             bob = math.sin(p.anim_t) * 1.5 * scale
