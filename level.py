@@ -10,7 +10,7 @@ from pathlib import Path
 import config as C
 from gate import GatePair
 from obstacle import Obstacle
-from enemy import EnemyGroup
+from enemy import EnemyGroup, Boss
 
 LEVEL_DIR = Path(__file__).parent / "levels"
 
@@ -33,6 +33,8 @@ def build_object(data):
         return Obstacle(data["x"], data["z"], data["width"], data["damage"])
     if kind == "enemy":
         return EnemyGroup(data["z"], data["count"], data.get("x", 0))
+    if kind == "boss":
+        return Boss(data["z"], data["count"], data.get("x", 0))
     raise ValueError(f"unknown object type: {kind!r}")
 
 

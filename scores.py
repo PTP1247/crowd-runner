@@ -3,6 +3,7 @@
 ทำไมแยกจาก ui.py: ส่วนนี้เป็น logic ล้วนๆ ไม่ต้องเปิดหน้าต่าง จึงเขียน test ได้ง่าย
 """
 import json
+import math
 from pathlib import Path
 
 SCORE_FILE = Path(__file__).parent / "highscores.json"   # อยู่ใน .gitignore (คะแนนของแต่ละเครื่อง)
@@ -24,6 +25,11 @@ def stars(won, count, best):
     if ratio >= TWO_STAR:
         return 2
     return 1
+
+
+def thresholds(best):
+    """จำนวนคนที่ต้องเหลืออย่างน้อยเพื่อได้ 2 ดาวและ 3 ดาว (ปัดขึ้น ให้ตรงกับ stars())"""
+    return math.ceil(best * TWO_STAR), math.ceil(best * THREE_STAR)
 
 
 def load_scores(path=None):

@@ -64,18 +64,25 @@ class GatePair:
         self.left = Gate(-C.ROAD_HALF_W, 0, *left)
         self.right = Gate(0, C.ROAD_HALF_W, *right)
         self.used = False
+        self.chosen = None        # บานที่กลุ่มคนผ่าน
+        self.flash = 0.0          # เวลาที่เหลือของการกระพริบหลังผ่าน (วินาที)
 
     def update(self, dt):
-        pass  # TODO(B): animation เช่น ประตูกระพริบตอนถูกผ่าน
+        self.flash = max(0.0, self.flash - dt)
 
     def on_reach(self, crowd):
         """เรียกครั้งเดียวเมื่อกลุ่มคนวิ่งถึง z ของประตู"""
         gate = self.left if self.left.contains(crowd.x) else self.right
         crowd.count = gate.apply(crowd.count)
         self.used = True
+        self.chosen = gate
+        self.flash = C.GATE_FLASH_TIME
 
     def draw(self, screen, camera, font):
-        if self.used or not camera.visible(self.z):
+        if not camera.visible(self.z):
+            return
+        if self.used:
+            self.draw_flash(screen, camera)
             return
         for gate in (self.left, self.right):
             x1, y, scale = camera.project(gate.x_min, self.z)
@@ -88,3 +95,20 @@ class GatePair:
             screen.blit(surf, rect.topleft)
             text = label_image(font, gate.label(), min(scale, 1.5))
             screen.blit(text, text.get_rect(center=rect.center))
+
+    def draw_flash(self, screen, camera):
+        """บานที่เพิ่งผ่านสว่างวาบแล้วจางหาย ให้รู้ว่าเลือกฝั่งไหนไป"""
+        if self.flash <= 0 or self.chosen is None:
+            return
+        gate = self.chosen
+        x1, y, scale = camera.project(gate.x_min, self.z)
+        x2, _, _ = camera.project(gate.x_max, self.z)
+        h = C.GATE_HEIGHT * scale
+        rect = pygame.Rect(x1 + 2, y - h, x2 - x1 - 4, h)
+        if rect.width <= 0 or rect.height <= 0:
+            return
+        color = C.GATE_GOOD if gate.is_good() else C.GATE_BAD
+        light = tuple(min(255, c + 110) for c in color)
+        surf = pygame.Surface(rect.size, pygame.SRCALPHA)
+        surf.fill((*light, int(220 * self.flash / C.GATE_FLASH_TIME)))
+        screen.blit(surf, rect.topleft)

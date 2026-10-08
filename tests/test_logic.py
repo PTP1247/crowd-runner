@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from gate import Gate
 from crowd import Crowd
 from obstacle import Obstacle
-from enemy import EnemyGroup
+from enemy import EnemyGroup, Boss
 import config as C
 import scores
 from gate import GatePair
@@ -53,8 +53,35 @@ def test_big_crowd_simulates_sample():
 
 def test_enemy_fight():
     crowd = Crowd(50)
-    EnemyGroup(100, 40).on_reach(crowd)
-    assert crowd.count == 10
+    enemy = EnemyGroup(100, 40)
+    enemy.on_reach(crowd)
+    enemy.finish()
+    assert crowd.count == 10 and enemy.lost == 40
+
+
+def test_enemy_fight_is_gradual():
+    """ปะทะค่อยๆ หักทีละนิด ใช้เวลาราว FIGHT_TIME วินาที ไม่ใช่หักทีเดียว"""
+    crowd = Crowd(500)
+    enemy = EnemyGroup(100, 300)
+    enemy.on_reach(crowd)
+    assert enemy.fighting and crowd.count == 500
+    enemy.update(C.FIGHT_TIME / 2)
+    assert 300 < crowd.count < 500 and enemy.fighting           # ครึ่งทาง
+    t = 0
+    while enemy.fighting:
+        enemy.update(1 / 60)
+        t += 1 / 60
+    assert crowd.count == 200 and enemy.count == 0 and enemy.used
+    assert t <= C.FIGHT_TIME                                     # จบในเวลาที่ตั้งไว้
+
+
+def test_boss_from_level_file_counts_like_enemy():
+    boss = build_object({"type": "boss", "z": 500, "count": 120})
+    assert isinstance(boss, Boss) and isinstance(boss, EnemyGroup) and boss.max_hp == 120
+    crowd = Crowd(200)
+    boss.on_reach(crowd)
+    boss.finish()
+    assert crowd.count == 80 and boss.used
 
 
 def test_level1_loads_sorted():
@@ -102,6 +129,7 @@ def test_enemy_bigger_than_crowd():
     crowd = Crowd(10)
     enemy = EnemyGroup(100, 25)
     enemy.on_reach(crowd)
+    enemy.finish()
     assert crowd.count == 0 and enemy.count == 15 and enemy.used
 
 
@@ -269,3 +297,11 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("PASS", name)
+
+
+def test_star_thresholds_match_stars():
+    for best in (1, 7, 155, 2880):
+        two, three = scores.thresholds(best)
+        assert scores.stars(True, two, best) >= 2 and scores.stars(True, three, best) == 3
+        assert two == 1 or scores.stars(True, two - 1, best) < 2      # น้อยกว่านี้ 1 คนไม่ได้
+        assert three == 1 or scores.stars(True, three - 1, best) < 3

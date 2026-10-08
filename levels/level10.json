@@ -20,6 +20,6 @@
     {"type": "obstacle",  "z": 6100, "x": 0,   "width": 150, "damage": 150},
     {"type": "gate_pair", "z": 6550, "left": ["x", 2],  "right": ["+", 300]},
     {"type": "obstacle",  "z": 6900, "x": 0,   "width": 100, "damage": 20},
-    {"type": "enemy",     "z": 7300, "count": 3600}
+    {"type": "boss",      "z": 7300, "count": 3600}
   ]
 }

@@ -95,17 +95,98 @@ def draw_hud(screen, font, level, progress):
     pygame.draw.rect(screen, C.PLAYER_COLOR, fill, border_radius=5)
 
 
-def draw_end(screen, big, small, won, count, star_count=0, best=None, new_record=False):
-    """best: high score เดิมของด่านนี้ (dict จาก scores หรือ None)"""
-    overlay = pygame.Surface((C.SCREEN_W, C.SCREEN_H), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 160))
-    screen.blit(overlay, (0, 0))
-    draw_text_center(screen, big, "YOU WIN!" if won else "GAME OVER", 300)
-    draw_stars(screen, (C.SCREEN_W // 2, 370), star_count, r=22)
+def draw_end(screen, big, small, won, count, star_count=0, best=None, new_record=False,
+             cause=None, thresholds=None, has_next=False):
+    """best: high score เดิมของด่านนี้ (dict จาก scores หรือ None)
+    cause: แพ้เพราะอะไร (ข้อความ)   thresholds: (คนที่ต้องเหลือเพื่อ 2 ดาว, 3 ดาว)
+    has_next: ชนะแล้วมีด่านถัดไปให้กด Enter ไปต่อไหม"""
+    dim(screen, 120)
+    panel(screen, pygame.Rect(30, 215, C.SCREEN_W - 60, 360))
+    draw_text_center(screen, big, "YOU WIN!" if won else "GAME OVER", 270)
+    draw_stars(screen, (C.SCREEN_W // 2, 340), star_count, r=22)
+    y = 400
     if won:
-        draw_text_center(screen, small, f"People left: {count}", 430)
+        draw_text_center(screen, small, f"People left: {count}", y)
+        y += 34
+        if thresholds and star_count < 3:
+            need = thresholds[0] if star_count < 2 else thresholds[1]
+            draw_text_center(screen, small, f"{need}+ people for the next star", y, MUTED)
+            y += 34
+    elif cause:
+        draw_text_center(screen, small, f"Wiped out by {cause}", y, MUTED)
+        y += 34
     if new_record:
-        draw_text_center(screen, small, "NEW HIGH SCORE!", 470, STAR_ON)
+        draw_text_center(screen, small, "NEW HIGH SCORE!", y, STAR_ON)
     elif best:
-        draw_text_center(screen, small, f"High score: {best['count']}", 470)
-    draw_text_center(screen, small, "R: play again    M: level menu", 530)
+        draw_text_center(screen, small, f"High score: {best['count']}", y, MUTED)
+    y += 70
+    if won and has_next:
+        draw_text_center(screen, small, "ENTER: next level", y)
+    elif not won:
+        draw_text_center(screen, small, "ENTER: try again", y)
+    draw_text_center(screen, small, "R: play again    M: level menu", y + 34, MUTED)
+
+
+MUTED = (190, 200, 230)
+
+
+def dim(screen, alpha):
+    overlay = pygame.Surface((C.SCREEN_W, C.SCREEN_H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, alpha))
+    screen.blit(overlay, (0, 0))
+
+
+def panel(screen, rect):
+    """แผ่นทึบหลังข้อความ กันตัวเลข/คนในฉากโผล่มาทับตัวหนังสือ"""
+    surf = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(surf, (18, 24, 46, 240), surf.get_rect(), border_radius=14)
+    screen.blit(surf, rect.topleft)
+
+
+def draw_pause(screen, big, small, muted):
+    dim(screen, 120)
+    panel(screen, pygame.Rect(50, 270, C.SCREEN_W - 100, 220))
+    draw_text_center(screen, big, "PAUSED", 320)
+    draw_text_center(screen, small, "P / ESC: resume", 390)
+    draw_text_center(screen, small, "R: restart    M: level menu", 424, MUTED)
+    draw_text_center(screen, small, f"N: sound {'off' if muted else 'on'}", 458, MUTED)
+
+
+def draw_popups(screen, font, popups, anchor):
+    """ตัวเลขลอยขึ้นจากก้อนคนแล้วจางหาย  popups: [ข้อความ, สี, อายุ]  anchor: จุดบนจอเหนือก้อนคน"""
+    x, y = anchor
+    for i, (text, color, age) in enumerate(popups):
+        t = age / C.POPUP_TIME
+        image = font.render(text, True, color)
+        outline = font.render(text, True, C.BLACK)
+        alpha = int(255 * (1 - t ** 2))
+        image.set_alpha(alpha)
+        outline.set_alpha(alpha)
+        cy = y - 30 - t * 70 - i * 6
+        rect = image.get_rect(center=(x, cy))
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+            screen.blit(outline, rect.move(dx, dy))
+        screen.blit(image, rect)
+
+
+def draw_boss_bar(screen, font, boss):
+    """หลอดเลือดบอส ด้านบนจอ ใต้แถบความคืบหน้า"""
+    bar = pygame.Rect(40, 66, C.SCREEN_W - 80, 16)
+    pygame.draw.rect(screen, (40, 20, 50), bar.inflate(4, 4), border_radius=6)
+    fill = bar.copy()
+    fill.width = int(bar.width * max(0, boss.count) / max(1, boss.max_hp))
+    pygame.draw.rect(screen, (190, 70, 230), fill, border_radius=5)
+    label = font.render(f"BOSS  {boss.count}", True, C.WHITE)
+    screen.blit(label, label.get_rect(midtop=(C.SCREEN_W // 2, bar.bottom + 4)))
+
+
+def draw_tips(screen, font, lines, alpha):
+    """คำแนะนำช่วงแรกของด่านแรก วางกลางจอ ค่อยๆ จางหาย"""
+    box = pygame.Surface((C.SCREEN_W - 40, 34 * len(lines) + 16), pygame.SRCALPHA)
+    box.fill((20, 30, 60, int(190 * alpha / 255)))
+    rect = box.get_rect(midtop=(C.SCREEN_W // 2, 62))     # บนท้องฟ้า ไม่บังประตูที่โผล่จากขอบฟ้า
+    screen.blit(box, rect)
+    for i, line in enumerate(lines):
+        text = font.render(line, True, C.WHITE)
+        text.set_alpha(alpha)
+        screen.blit(text, text.get_rect(center=(C.SCREEN_W // 2, rect.y + 25 + i * 34)))

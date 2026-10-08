@@ -4,7 +4,8 @@
 
 State machine:  MENU --(เลือกด่าน: space/click)--> PLAYING --(ถึงเส้นชัย)--> WIN
                                                          +--(คนเหลือ 0)--> LOSE
-                WIN/LOSE --(R)--> PLAYING ด่านเดิม,  --(M)--> MENU
+                PLAYING <--(P / Esc)--> PAUSED --(M)--> MENU
+                WIN/LOSE --(R)--> PLAYING ด่านเดิม,  --(Enter)--> ด่านถัดไป (ชนะ) / เล่นใหม่ (แพ้),  --(M)--> MENU
 """
 import sys
 import random
@@ -16,14 +17,22 @@ import ui
 import scores
 from camera import Camera
 from crowd import Crowd
+import sound
+from enemy import Boss
+from gate import GatePair
 from level import load_level, list_levels, best_count
+from obstacle import Obstacle
 
-MENU, PLAYING, WIN, LOSE = "menu", "playing", "win", "lose"
+MENU, PLAYING, PAUSED, WIN, LOSE = "menu", "playing", "paused", "win", "lose"
 ROAD_STRIP_PX = 2      # ลายอิฐบนถนน: แต่ละแถบสูงบนจอประมาณกี่พิกเซล (น้อย = เนียนแต่ช้า)
+TIP_TIME = 5.0         # คำแนะนำด่านแรกโชว์กี่วินาที
+TIPS = ["Steer: Left/Right, A/D or drag", "Take the gate that gives MORE people",
+        "Dodge red blocks, beat the red army"]
 
 class Game:
     def __init__(self):
         pygame.init()
+        sound.init()
         self.screen = pygame.display.set_mode((C.SCREEN_W, C.SCREEN_H))
         pygame.display.set_caption(C.TITLE)
         self.clock = pygame.time.Clock()
@@ -49,6 +58,10 @@ class Game:
         self.crowd = Crowd(self.level.start_count)
         self.camera.z = 0.0
         self.next_index = 0  # object ถัดไปใน level.objects ที่กลุ่มคนยังไม่ถึง
+        self.fight = None    # ศัตรู/บอสที่กำลังปะทะอยู่ (ระหว่างนี้หยุดวิ่ง)
+        self.popups = []     # [ข้อความ, สี, อายุวินาที] ตัวเลขลอยเหนือก้อนคน
+        self.lose_cause = None
+        self.elapsed = 0.0   # เล่นด่านนี้มากี่วินาทีแล้ว (ใช้โชว์คำแนะนำช่วงแรก)
         self.make_tufts()
 
     # ---------------- สร้างลายพิกเซล ----------------
@@ -139,28 +152,7 @@ class Game:
                 pygame.quit()
                 sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_v:
-                    self.camera.toggle_mode()
-                if self.state == MENU:
-                    if event.key in (pygame.K_UP, pygame.K_w):
-                        self.move_selection(-1)
-                    elif event.key in (pygame.K_DOWN, pygame.K_s):
-                        self.move_selection(1)
-                    elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
-                        self.start_level()
-                    elif event.key == pygame.K_u:
-                        self.unlock_all = not self.unlock_all
-                        if not self.unlocked(self.selected):   # ปิดแล้วด่านที่เลือกอยู่ล็อก กลับไปด่านแรก
-                            self.selected = 0
-                elif self.state in (WIN, LOSE):
-                    if event.key == pygame.K_r:
-                        self.start_level()
-                    elif event.key == pygame.K_m:
-                        # ชนะแล้วเลื่อนไปด่านถัดไปที่เพิ่งปลดล็อกให้เลย
-                        if self.state == WIN and self.unlocked(self.selected + 1):
-                            self.selected += 1
-                        self.reset()
-                        self.state = MENU
+                self.handle_key(event.key)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.state == MENU:
                 for i in range(len(self.level_files)):
                     if ui.menu_row_rect(i).collidepoint(event.pos) and self.unlocked(i):
@@ -175,6 +167,52 @@ class Game:
             if pygame.mouse.get_pressed()[0]:  # กดเมาส์ค้างแล้วลาก
                 mx, _ = pygame.mouse.get_pos()
                 self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
+
+    def handle_key(self, key):
+        if key == pygame.K_v:
+            self.camera.toggle_mode()
+        if key == pygame.K_n:
+            sound.toggle_mute()
+        if self.state == MENU:
+            if key in (pygame.K_UP, pygame.K_w):
+                self.move_selection(-1)
+            elif key in (pygame.K_DOWN, pygame.K_s):
+                self.move_selection(1)
+            elif key in (pygame.K_SPACE, pygame.K_RETURN):
+                self.start_level()
+            elif key == pygame.K_u:
+                self.unlock_all = not self.unlock_all
+                if not self.unlocked(self.selected):   # ปิดแล้วด่านที่เลือกอยู่ล็อก กลับไปด่านแรก
+                    self.selected = 0
+        elif self.state == PLAYING:
+            if key in (pygame.K_p, pygame.K_ESCAPE):
+                self.state = PAUSED
+            elif key == pygame.K_r:
+                self.start_level()
+        elif self.state == PAUSED:
+            if key in (pygame.K_p, pygame.K_ESCAPE, pygame.K_SPACE):
+                self.state = PLAYING
+            elif key == pygame.K_r:
+                self.start_level()
+            elif key == pygame.K_m:
+                self.go_to_menu()
+        elif self.state in (WIN, LOSE):
+            if key == pygame.K_r:
+                self.start_level()
+            elif key in (pygame.K_RETURN, pygame.K_SPACE):
+                # ชนะ: ไปด่านถัดไปเลย (ถ้ามี)  แพ้: เล่นใหม่
+                if self.state == WIN and self.unlocked(self.selected + 1):
+                    self.selected += 1
+                self.start_level()
+            elif key == pygame.K_m:
+                self.go_to_menu()
+
+    def go_to_menu(self):
+        # ชนะแล้วเลื่อนไปด่านถัดไปที่เพิ่งปลดล็อกให้เลย
+        if self.state == WIN and self.unlocked(self.selected + 1):
+            self.selected += 1
+        self.reset()
+        self.state = MENU
 
     def unlocked(self, i):
         if i >= len(self.level_files):
@@ -205,30 +243,93 @@ class Game:
         self.scores = scores.load_scores()
         self.result = (star_count, old, new_record)
         self.state = WIN if won else LOSE
+        sound.play("win" if won else "lose")
 
     # ---------------- update ----------------
     def update(self):
         if self.state != PLAYING:
             return
+        dt = self.dt
+        self.camera.update(dt)
+        self.elapsed += dt
+        for popup in self.popups:
+            popup[2] += dt
+        self.popups = [p for p in self.popups if p[2] < C.POPUP_TIME]
+
+        if self.fight:
+            self.update_fight(dt)
+            return
+
         # คูณ dt เสมอ: ความเร็วจะเท่ากันไม่ว่าเครื่องจะได้ 30 หรือ 144 FPS
-        self.camera.z += self.level.speed * self.dt
+        self.camera.z += self.level.speed * dt
         self.crowd.z = self.camera.z + C.CROWD_OFFSET
-        self.crowd.update(self.dt)
+        self.crowd.update(dt)
 
         # ตรวจว่ากลุ่มคนวิ่ง "ถึง/เลย" object ไหนบ้างในเฟรมนี้
         # ใช้ >= แทน == เพราะ z เพิ่มทีละหลาย unit ต่อเฟรม อาจกระโดดข้ามค่าพอดีไป
         objects = self.level.objects
         while self.next_index < len(objects) and self.crowd.z >= objects[self.next_index].z:
-            objects[self.next_index].on_reach(self.crowd)
+            obj = objects[self.next_index]
             self.next_index += 1
+            before = self.crowd.count
+            obj.on_reach(self.crowd)
+            if getattr(obj, "fighting", False):
+                # ปะทะศัตรู/บอส: หยุดวิ่งจนกว่าจะจบ (ดู update_fight)
+                self.fight = obj
+                sound.play("fight")
+                break
+            self.react(obj, before)
 
         for obj in objects:
-            obj.update(self.dt)
+            obj.update(dt)
 
         if self.crowd.count <= 0:
             self.finish_level(False)
         elif self.crowd.z >= self.level.finish_z:
             self.finish_level(True)
+
+    def update_fight(self, dt):
+        """ระหว่างปะทะ: ไม่วิ่ง ไม่อัปเดตสิ่งกีดขวาง
+        ทำไมหยุดสิ่งกีดขวางด้วย: level.dodge_spans คิดจังหวะแกว่งจาก "ระยะทาง / ความเร็ว"
+        ถ้าเวลาเดินระหว่างหยุดวิ่ง สิ่งกีดขวางข้างหน้าจะไม่อยู่ตรงที่เช็กไว้ว่าหลบทัน"""
+        fight = self.fight
+        fight.update(dt)
+        self.crowd.update(dt)
+        self.camera.shake(C.SHAKE_FIGHT, 0.1)
+        if not fight.fighting:
+            self.fight = None
+            if fight.lost:
+                self.add_popup(f"-{fight.lost}", C.GATE_BAD)
+            if self.crowd.count <= 0:
+                self.lose_cause = "the boss" if isinstance(fight, Boss) else "the enemy army"
+            else:
+                sound.play("win_fight")
+        if self.crowd.count <= 0:
+            self.finish_level(False)
+
+    def react(self, obj, before):
+        """เอฟเฟกต์หลังผ่าน object: ตัวเลขลอย, กล้องสั่น, เสียง และจำสาเหตุถ้าคนหมด"""
+        change = self.crowd.count - before
+        if isinstance(obj, GatePair):
+            good = obj.chosen.is_good()
+            # + กับ - บอกจำนวนเปลี่ยนอยู่แล้ว  × กับ ÷ ต้องบอกด้วยว่าได้/เสียกี่คน
+            text = f"{change:+d}" if obj.chosen.op in "+-" else f"{obj.chosen.label()}  ({change:+d})"
+            self.add_popup(text, C.GATE_GOOD if good else C.GATE_BAD)
+            sound.play("gate_good" if good else "gate_bad")
+            cause = f"the {obj.chosen.label()} gate"
+        elif isinstance(obj, Obstacle):
+            if change < 0:
+                self.add_popup(f"-{-change}", C.GATE_BAD)
+                self.camera.shake(C.SHAKE_HIT * min(1.0, 0.3 + 2 * -change / before), 0.3)
+                sound.play("hit")
+            cause = "an obstacle"
+        else:
+            cause = "a trap"
+        if self.crowd.count <= 0:
+            self.lose_cause = cause
+
+    def add_popup(self, text, color):
+        self.popups.append([text, color, 0.0])
 
     # ---------------- draw ----------------
     def draw_world(self):
@@ -317,12 +418,31 @@ class Game:
                          unlocked, self.unlock_all)
         else:
             self.draw_world()
+            sx, sy, scale = self.camera.project(self.crowd.x, self.crowd.z)
+            ui.draw_popups(self.screen, self.font, self.popups, (sx, sy - 70 * scale))
             progress = self.crowd.z / self.level.finish_z
             ui.draw_hud(self.screen, self.font, self.level, progress)
-            if self.state in (WIN, LOSE):
+            boss = self.visible_boss()
+            if boss:
+                ui.draw_boss_bar(self.screen, self.font, boss)
+            if self.selected == 0 and self.elapsed < TIP_TIME and self.state == PLAYING:
+                fade = min(1.0, (TIP_TIME - self.elapsed) / 0.6)
+                ui.draw_tips(self.screen, self.font, TIPS, int(255 * fade))
+            if self.state == PAUSED:
+                ui.draw_pause(self.screen, self.big_font, self.font, sound.is_muted())
+            elif self.state in (WIN, LOSE):
                 ui.draw_end(self.screen, self.big_font, self.font, self.state == WIN, self.crowd.count,
-                            *self.result)
+                            *self.result, cause=self.lose_cause,
+                            thresholds=scores.thresholds(self.best),
+                            has_next=self.unlocked(self.selected + 1))
         pygame.display.flip()
+
+    def visible_boss(self):
+        """บอสที่อยู่ในระยะมองเห็นหรือกำลังปะทะ (ไว้โชว์หลอดเลือด)"""
+        for obj in self.level.objects:
+            if isinstance(obj, Boss) and not obj.used and (obj.fighting or self.camera.visible(obj.z)):
+                return obj
+        return None
 
     def run(self):
         while True:
