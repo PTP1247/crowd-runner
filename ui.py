@@ -194,17 +194,6 @@ def draw_popups(screen, font, popups, anchor):
         screen.blit(image, rect)
 
 
-def draw_boss_bar(screen, font, boss):
-    """หลอดเลือดบอส ด้านบนจอ ใต้แถบความคืบหน้า"""
-    bar = pygame.Rect(40, 66, C.SCREEN_W - 80, 16)
-    pygame.draw.rect(screen, (40, 20, 50), bar.inflate(4, 4), border_radius=6)
-    fill = bar.copy()
-    fill.width = int(bar.width * max(0, boss.count) / max(1, boss.max_hp))
-    pygame.draw.rect(screen, (190, 70, 230), fill, border_radius=5)
-    label = font.render(f"BOSS  {boss.count}", True, C.WHITE)
-    screen.blit(label, label.get_rect(midtop=(C.SCREEN_W // 2, bar.bottom + 4)))
-
-
 def draw_tips(screen, font, lines, alpha):
     """คำแนะนำช่วงแรกของด่านแรก วางกลางจอ ค่อยๆ จางหาย"""
     box = pygame.Surface((C.SCREEN_W - 40, 34 * len(lines) + 16), pygame.SRCALPHA)

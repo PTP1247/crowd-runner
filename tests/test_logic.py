@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from gate import Gate
 from crowd import Crowd
 from obstacle import Obstacle
-from enemy import EnemyGroup, Boss
+from enemy import EnemyGroup
 import config as C
 import scores
 from gate import GatePair
@@ -73,15 +73,6 @@ def test_enemy_fight_is_gradual():
         t += 1 / 60
     assert crowd.count == 200 and enemy.count == 0 and enemy.used
     assert t <= C.FIGHT_TIME                                     # จบในเวลาที่ตั้งไว้
-
-
-def test_boss_from_level_file_counts_like_enemy():
-    boss = build_object({"type": "boss", "z": 500, "count": 120})
-    assert isinstance(boss, Boss) and isinstance(boss, EnemyGroup) and boss.max_hp == 120
-    crowd = Crowd(200)
-    boss.on_reach(crowd)
-    boss.finish()
-    assert crowd.count == 80 and boss.used
 
 
 def test_level1_loads_sorted():

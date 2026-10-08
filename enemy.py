@@ -1,16 +1,13 @@
-"""กองศัตรู / บอส: ปะทะแล้วจำนวนหักลบกันทีละคน   [เจ้าของ: B]"""
+"""กองศัตรู: ปะทะแล้วจำนวนหักลบกันทีละคน   [เจ้าของ: B]"""
 import math
 import pygame
 import config as C
 import sprites
 
 ENEMY_TINT = (255, 120, 110)    # ย้อม sprite คนให้เป็นสีแดง แยกจากฝั่งเรา
-BOSS_TINT = (190, 110, 255)
 
 
 class EnemyGroup:
-    fight_time = C.FIGHT_TIME   # ปะทะกันนานกี่วินาที (กลุ่มใหญ่หักเร็วขึ้น เวลารวมเท่าเดิม)
-
     def __init__(self, z, count, x=0):
         self.x, self.z = x, z
         self.count = count
@@ -26,7 +23,7 @@ class EnemyGroup:
         """เริ่มปะทะ: หักทีละนิดใน update() แทนหักทีเดียว ดูสนุกกว่า เหมือนในวิดีโอ"""
         self.crowd = crowd
         self.fighting = True
-        self.rate = max(C.FIGHT_MIN_RATE, min(self.count, crowd.count) / self.fight_time)
+        self.rate = max(C.FIGHT_MIN_RATE, min(self.count, crowd.count) / C.FIGHT_TIME)
         self.update(0)
 
     def update(self, dt):
@@ -75,24 +72,3 @@ class EnemyGroup:
         pygame.draw.rect(screen, C.ENEMY_COLOR, bg, border_radius=6)
         screen.blit(text, text.get_rect(center=bg.center))
 
-
-class Boss(EnemyGroup):
-    """บอสตัวใหญ่ 1 ตัว พลังชีวิต (HP) = จำนวนคนที่ต้องใช้ล้ม  ปะทะนานกว่าศัตรูธรรมดา
-    คิดเลขเหมือน EnemyGroup ทุกอย่าง (level.best_count / difficulty ใช้ได้เลย)"""
-    fight_time = C.BOSS_FIGHT_TIME
-    size = 4.0                   # ใหญ่กว่าคนปกติกี่เท่า
-
-    def __init__(self, z, count, x=0):
-        super().__init__(z, count, x)
-        self.max_hp = count
-
-    def draw(self, screen, camera, font):
-        if self.used or not camera.visible(self.z):
-            return
-        cut = sprites.frames("Attack" if self.fighting else "Idle", tint=BOSS_TINT)
-        sx, sy, scale = camera.project(self.x, self.z + 40)    # ยืนเลยจุดปะทะไปนิด ไม่ทับกลุ่มคนเรา
-        frame = cut[int(self.anim_t * 8) % len(cut)]
-        w, h = int(frame.get_width() * scale * self.size), int(frame.get_height() * scale * self.size)
-        if self.fighting:
-            sx += math.sin(self.anim_t * 40) * 3 * scale         # สั่นตอนโดนตี
-        screen.blit(sprites.scaled(frame, w, h), (sx - w // 2, sy - h))

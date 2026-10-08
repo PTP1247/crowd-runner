@@ -18,7 +18,6 @@ import scores
 from camera import Camera
 from crowd import Crowd
 import sound
-from enemy import Boss
 from gate import GatePair
 from level import load_level, list_levels, best_count, difficulty
 from obstacle import Obstacle
@@ -59,7 +58,7 @@ class Game:
         self.crowd = Crowd(self.level.start_count)
         self.camera.z = 0.0
         self.next_index = 0  # object ถัดไปใน level.objects ที่กลุ่มคนยังไม่ถึง
-        self.fight = None    # ศัตรู/บอสที่กำลังปะทะอยู่ (ระหว่างนี้หยุดวิ่ง)
+        self.fight = None    # ศัตรูที่กำลังปะทะอยู่ (ระหว่างนี้หยุดวิ่ง)
         self.popups = []     # [ข้อความ, สี, อายุวินาที] ตัวเลขลอยเหนือก้อนคน
         self.lose_cause = None
         self.elapsed = 0.0   # เล่นด่านนี้มากี่วินาทีแล้ว (ใช้โชว์คำแนะนำช่วงแรก)
@@ -275,7 +274,7 @@ class Game:
             before = self.crowd.count
             obj.on_reach(self.crowd)
             if getattr(obj, "fighting", False):
-                # ปะทะศัตรู/บอส: หยุดวิ่งจนกว่าจะจบ (ดู update_fight)
+                # ปะทะศัตรู: หยุดวิ่งจนกว่าจะจบ (ดู update_fight)
                 self.fight = obj
                 sound.play("fight")
                 break
@@ -302,7 +301,7 @@ class Game:
             if fight.lost:
                 self.add_popup(f"-{fight.lost}", C.GATE_BAD)
             if self.crowd.count <= 0:
-                self.lose_cause = "the boss" if isinstance(fight, Boss) else "the enemy army"
+                self.lose_cause = "the enemy army"
             else:
                 sound.play("win_fight")
         if self.crowd.count <= 0:
@@ -423,9 +422,6 @@ class Game:
             ui.draw_popups(self.screen, self.font, self.popups, (sx, sy - 70 * scale))
             progress = self.crowd.z / self.level.finish_z
             ui.draw_hud(self.screen, self.font, self.level, progress)
-            boss = self.visible_boss()
-            if boss:
-                ui.draw_boss_bar(self.screen, self.font, boss)
             if self.selected == 0 and self.elapsed < TIP_TIME and self.state == PLAYING:
                 fade = min(1.0, (TIP_TIME - self.elapsed) / 0.6)
                 ui.draw_tips(self.screen, self.font, TIPS, int(255 * fade))
@@ -437,13 +433,6 @@ class Game:
                             thresholds=scores.thresholds(self.best),
                             has_next=self.unlocked(self.selected + 1))
         pygame.display.flip()
-
-    def visible_boss(self):
-        """บอสที่อยู่ในระยะมองเห็นหรือกำลังปะทะ (ไว้โชว์หลอดเลือด)"""
-        for obj in self.level.objects:
-            if isinstance(obj, Boss) and not obj.used and (obj.fighting or self.camera.visible(obj.z)):
-                return obj
-        return None
 
     def run(self):
         while True:

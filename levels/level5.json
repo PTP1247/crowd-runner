@@ -19,6 +19,6 @@
     {"type": "obstacle",  "z": 5200, "x": 0,   "width": 100, "damage": 20},
     {"type": "enemy",     "z": 5500, "count": 120},
     {"type": "gate_pair", "z": 6000, "left": ["x", 2],  "right": ["+", 30]},
-    {"type": "boss",      "z": 6400, "count": 200}
+    {"type": "enemy",     "z": 6400, "count": 200}
   ]
 }
