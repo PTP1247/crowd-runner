@@ -89,10 +89,18 @@ class GatePair:
             x2, _, _ = camera.project(gate.x_max, self.z)
             h = C.GATE_HEIGHT * scale
             rect = pygame.Rect(x1 + 2, y - h, x2 - x1 - 4, h)
+            if rect.width <= 0 or rect.height <= 0:
+                continue
             color = C.GATE_GOOD if gate.is_good() else C.GATE_BAD
             surf = pygame.Surface(rect.size, pygame.SRCALPHA)
-            surf.fill((*color, 150))  # โปร่งแสงให้เห็นคนข้างหลัง
+            surf.fill((*color, 130))  # โปร่งแสงให้เห็นคนข้างหลัง
             screen.blit(surf, rect.topleft)
+            # กรอบประตู: เสาสองข้าง + คานบน สีเข้มกว่าตัวประตู
+            frame = tuple(c // 2 for c in color)
+            post = max(2, int(5 * scale))
+            pygame.draw.rect(screen, frame, (rect.x, rect.y, post, rect.height))
+            pygame.draw.rect(screen, frame, (rect.right - post, rect.y, post, rect.height))
+            pygame.draw.rect(screen, frame, (rect.x, rect.y, rect.width, post))
             text = label_image(font, gate.label(), min(scale, 1.5))
             screen.blit(text, text.get_rect(center=rect.center))
 

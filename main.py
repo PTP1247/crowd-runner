@@ -20,7 +20,7 @@ from crowd import Crowd
 import sound
 from enemy import Boss
 from gate import GatePair
-from level import load_level, list_levels, best_count
+from level import load_level, list_levels, best_count, difficulty
 from obstacle import Obstacle
 
 MENU, PLAYING, PAUSED, WIN, LOSE = "menu", "playing", "paused", "win", "lose"
@@ -45,6 +45,7 @@ class Game:
         self.clouds = self.make_clouds()
         self.level_files = list_levels()
         self.level_names = [(f, load_level(f).name) for f in self.level_files]
+        self.level_tiers = [ui.difficulty_tier(difficulty(load_level(f))) for f in self.level_files]
         self.selected = 0                       # index ด่านที่เลือกในเมนู
         self.scores = scores.load_scores()
         self.unlock_all = False                 # ปุ่ม U ในเมนู: ปลดล็อกทุกด่านชั่วคราว (ไว้ทดสอบ/โชว์ ไม่บันทึกลงไฟล์)
@@ -415,7 +416,7 @@ class Game:
         if self.state == MENU:
             unlocked = [self.unlocked(i) for i in range(len(self.level_files))]
             ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores,
-                         unlocked, self.unlock_all)
+                         unlocked, self.unlock_all, self.level_tiers)
         else:
             self.draw_world()
             sx, sy, scale = self.camera.project(self.crowd.x, self.crowd.z)

@@ -3,6 +3,24 @@ import pygame
 import config as C
 import random
 import math
+import sprites
+
+HEIGHT = 25                 # สูงกี่ unit (วาดอย่างเดียว ไม่มีผลกับการชน)
+DEPTH = 18                  # หนากี่ unit ตามแกน z
+TOP_COLOR = (235, 190, 60)
+EDGE_COLOR = (60, 30, 20)
+_hazard = []
+
+
+def hazard_tile():
+    """ลายทางเฉียงเหลือง-ดำแบบป้ายเตือน สร้างครั้งเดียวแล้วย่อ/ขยายใช้"""
+    if not _hazard:
+        tile = pygame.Surface((96, 16))
+        tile.fill((245, 200, 40))
+        for x in range(-16, 96, 16):
+            pygame.draw.polygon(tile, (40, 35, 30), [(x, 16), (x + 8, 16), (x + 16, 0), (x + 8, 0)])
+        _hazard.append(tile)
+    return _hazard[0]
 
 # ลายการขยับที่สุ่มได้: (ชื่อ, ความเร็วแกว่ง ต่ำสุด-สูงสุด)  ความเร็ว 0 = อยู่นิ่ง
 PATTERNS = [("still", 0, 0), ("slow", 1.0, 1.8), ("fast", 2.2, 3.2)]
@@ -59,9 +77,18 @@ class Obstacle:
         crowd.remove(victims)
 
     def draw(self, screen, camera, font):
+        """กล่องกั้นทางลายเหลือง-ดำ: ด้านหน้า + ด้านบน (ลึก DEPTH unit) ให้ดูเป็นของแข็งมีความหนา"""
         if not camera.visible(self.z):
             return
-        x1, y, scale = camera.project(self.x - self.width / 2, self.z)
-        x2, _, _ = camera.project(self.x + self.width / 2, self.z)
-        h = 25 * scale
-        pygame.draw.rect(screen, C.OBSTACLE_COLOR, (x1, y - h, x2 - x1, h))
+        left, right = self.x - self.width / 2, self.x + self.width / 2
+        x1, y, scale = camera.project(left, self.z)
+        x2, _, _ = camera.project(right, self.z)
+        bx1, by, bscale = camera.project(left, self.z + DEPTH)
+        bx2, _, _ = camera.project(right, self.z + DEPTH)
+        h, bh = HEIGHT * scale, HEIGHT * bscale
+        top = [(x1, y - h), (x2, y - h), (bx2, by - bh), (bx1, by - bh)]
+        pygame.draw.polygon(screen, TOP_COLOR, top)
+        w = int(x2 - x1)
+        if w > 0 and int(h) > 0:
+            screen.blit(sprites.scaled(hazard_tile(), w, int(h)), (x1, y - h))
+        pygame.draw.rect(screen, EDGE_COLOR, (x1, y - h, w, h), max(1, int(2 * scale)))
