@@ -1,0 +1,25 @@
+{
+  "name": "Level 4 - Greedy Traps",
+  "start_count": 15,
+  "speed": 330,
+  "finish_z": 6400,
+  "objects": [
+    {"type": "gate_pair", "z": 700,  "left": ["+", 15], "right": ["x", 2]},
+    {"type": "obstacle",  "z": 1000, "x": 0,   "width": 100, "damage": 20},
+    {"type": "gate_pair", "z": 1300, "left": ["x", 2],  "right": ["-", 5]},
+    {"type": "obstacle",  "z": 1600, "x": 0,   "width": 100, "damage": 20},
+    {"type": "gate_pair", "z": 1900, "left": ["-", 10], "right": ["x", 3]},
+    {"type": "obstacle",  "z": 2200, "x": 0,   "width": 100, "damage": 20},
+    {"type": "gate_pair", "z": 2500, "left": ["+", 20], "right": ["/", 2]},
+    {"type": "obstacle",  "z": 3000, "x": 0,   "width": 150, "damage": 40},
+    {"type": "gate_pair", "z": 3500, "left": ["x", 3],  "right": ["+", 60]},
+    {"type": "obstacle",  "z": 3800, "x": 0,   "width": 100, "damage": 20},
+    {"type": "gate_pair", "z": 4100, "left": ["/", 3],  "right": ["+", 50]},
+    {"type": "obstacle",  "z": 4400, "x": 0,   "width": 100, "damage": 20},
+    {"type": "gate_pair", "z": 4700, "left": ["-", 40], "right": ["x", 2]},
+    {"type": "obstacle",  "z": 5000, "x": 0,   "width": 100, "damage": 20},
+    {"type": "gate_pair", "z": 5300, "left": ["x", 2],  "right": ["/", 2]},
+    {"type": "obstacle",  "z": 5600, "x": 0,   "width": 100, "damage": 20},
+    {"type": "enemy",     "z": 5900, "count": 1000}
+  ]
+}
