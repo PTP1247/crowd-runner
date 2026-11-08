@@ -43,18 +43,22 @@ def load_scores(path=None):
 
 
 def record(level_file, count, star_count, path=None):
-    """บันทึกถ้าดีกว่าของเดิม คืน True ถ้าเป็นสถิติใหม่"""
+    """บันทึกจำนวนคนและดาว แยกกัน เก็บค่าที่ดีที่สุดของแต่ละอย่าง  คืน True ถ้าจำนวนคนเป็นสถิติใหม่
+    ทำไมแยก: เลขประตูสุ่มทุกรอบ จำนวนคนสูงสุดที่เป็นไปได้เลยต่างกันมาก รอบที่ได้ 3 ดาว
+    อาจเหลือคนน้อยกว่าสถิติเดิม ถ้าบันทึกเฉพาะตอนคนเยอะกว่า ดาวที่ได้จะหายไป"""
     scores = load_scores(path)
     old = scores.get(level_file, {"count": 0, "stars": 0})
-    if count <= old.get("count", 0):
+    old_count, old_stars = old.get("count", 0), old.get("stars", 0)
+    new_record = count > old_count
+    if not new_record and star_count <= old_stars:
         return False
-    scores[level_file] = {"count": count, "stars": max(star_count, old.get("stars", 0))}
+    scores[level_file] = {"count": max(count, old_count), "stars": max(star_count, old_stars)}
     try:
         with open(path or SCORE_FILE, "w", encoding="utf-8") as f:
             json.dump(scores, f, indent=2)
     except OSError:
         pass  # เขียนไฟล์ไม่ได้ (เช่น โฟลเดอร์อ่านอย่างเดียว) ก็เล่นต่อได้ แค่ไม่จำคะแนน
-    return True
+    return new_record
 
 
 def is_unlocked(level_files, i, scores):

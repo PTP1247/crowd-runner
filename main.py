@@ -2,12 +2,13 @@
 
 รัน:  python main.py
 
-State machine:  MENU --(เลือกด่าน: space/click)--> PLAYING --(ถึงเส้นชัย)--> WIN
+State machine:  MENU --(เลือกด่าน: space/enter)--> PLAYING --(ถึงเส้นชัย)--> WIN
                                                          +--(คนเหลือ 0)--> LOSE
-                PLAYING <--(P / Esc)--> PAUSED --(M)--> MENU
+                PLAYING --(P / Esc)--> PAUSED --(ปุ่มอะไรก็ได้)--> PLAYING,  --(M)--> MENU
                 WIN/LOSE --(R)--> PLAYING ด่านเดิม,  --(Enter)--> ด่านถัดไป (ชนะ) / เล่นใหม่ (แพ้),  --(M)--> MENU
 """
 import sys
+import math
 import random
 import bisect
 import pygame
@@ -21,11 +22,16 @@ import sound
 from gate import GatePair
 from level import load_level, list_levels, best_count, difficulty
 from obstacle import Obstacle
+from effects import Effects
 
 MENU, PLAYING, PAUSED, WIN, LOSE = "menu", "playing", "paused", "win", "lose"
-ROAD_STRIP_PX = 2      # ลายอิฐบนถนน: แต่ละแถบสูงบนจอประมาณกี่พิกเซล (น้อย = เนียนแต่ช้า)
+ROAD_STRIP_PX = 2      # ลายอิฐบนถนน: แถบไกลๆ สูงบนจอประมาณกี่พิกเซล (น้อย = เนียนแต่ช้า)
+ROAD_TILE = 200        # ลายอิฐ 1 รอบยาวกี่ unit ตามแกน z
 TIP_TIME = 5.0         # คำแนะนำด่านแรกโชว์กี่วินาที
-TIPS = ["Steer: Left/Right, A/D or drag", "Take the gate that gives MORE people",
+HIT_RATE = 14          # ระหว่างปะทะ: ประกายหมัดอย่างน้อยกี่ครั้งต่อวินาที (บวกเพิ่มตามจำนวนคนที่หายไป)
+RUSH_DUST_RATE = 30    # ศัตรูวิ่งเข้ามา: ฝุ่นฟุ้งกี่ก้อนต่อวินาที
+ENEMY_CHIP = (240, 110, 95)  # สีเศษที่กระเด็นจากฝั่งศัตรู (ตรงกับสีที่ย้อม sprite ศัตรู)
+TIPS = ["Steer: Left/Right or A/D", "Take the gate that gives MORE people",
         "Dodge red blocks, beat the red army"]
 
 class Game:
@@ -39,6 +45,7 @@ class Game:
         self.big_font = pygame.font.Font(None, 64)
         self.camera = Camera()
         self.road_rows = self.make_road_rows()   # ลายถนนอิฐ (หั่นเป็นแถวไว้ล่วงหน้า)
+        self.road_mips = self.make_road_mips(self.road_rows)
         self.tuft_sprites = self.make_tuft_sprites()
         self.tuft_cache = {}                     # (แบบ, กว้าง) -> กอหญ้าที่ย่อแล้ว
         self.clouds = self.make_clouds()
@@ -62,6 +69,9 @@ class Game:
         self.popups = []     # [ข้อความ, สี, อายุวินาที] ตัวเลขลอยเหนือก้อนคน
         self.lose_cause = None
         self.elapsed = 0.0   # เล่นด่านนี้มากี่วินาทีแล้ว (ใช้โชว์คำแนะนำช่วงแรก)
+        self.effects = Effects()   # ประกายหมัด / เศษกระเด็น ตอนปะทะ
+        self.hit_timer = 0.0
+        self.dust_timer = 0.0
         self.make_tufts()
 
     # ---------------- สร้างลายพิกเซล ----------------
@@ -87,6 +97,16 @@ class Game:
                         c = light if dy == 0 else color   # ขอบบนสว่างนิดให้ดูนูน
                         tex.set_at(((x0 + dx) % w, y0 + dy), c)
         return [tex.subsurface((0, i, w, 1)).copy() for i in range(h)]
+
+    @staticmethod
+    def make_road_mips(rows):
+        """ลายถนนหลายระดับความละเอียด: ระดับ 0 = แถวจริง, ระดับ L = เฉลี่ยสีทีละ 2^L แถว
+        ใช้กับถนนไกลๆ ที่แถบบนจอ 1 แถบคลุมหลายแถวของลาย (จำนวนแถวต้องเป็นกำลังของ 2)"""
+        mips = [rows]
+        while len(mips[-1]) > 1:
+            prev = mips[-1]
+            mips.append([pygame.transform.average_surfaces(prev[i:i + 2]) for i in range(0, len(prev), 2)])
+        return mips
 
     def make_tuft_sprites(self):
         """กอหญ้าพิกเซลเล็กๆ 3 แบบ"""
@@ -153,24 +173,14 @@ class Game:
                 sys.exit()
             if event.type == pygame.KEYDOWN:
                 self.handle_key(event.key)
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.state == MENU:
-                for i in range(len(self.level_files)):
-                    if ui.menu_row_rect(i).collidepoint(event.pos) and self.unlocked(i):
-                        self.selected = i
-                        self.start_level()
-                        break
 
-        if self.state == PLAYING:
+        # คุมด้วยคีย์บอร์ดอย่างเดียว (ไม่รับเมาส์)  ระหว่างปะทะศัตรู/บอส เลี้ยวไม่ได้ (ยืนสู้อยู่กับที่)
+        if self.state == PLAYING and self.fight is None:
             keys = pygame.key.get_pressed()
             direction = (keys[pygame.K_RIGHT] or keys[pygame.K_d]) - (keys[pygame.K_LEFT] or keys[pygame.K_a])
             self.crowd.move(direction, self.dt, self.level.speed)
-            if pygame.mouse.get_pressed()[0]:  # กดเมาส์ค้างแล้วลาก
-                mx, _ = pygame.mouse.get_pos()
-                self.crowd.target_x = self.camera.unproject_x(mx, self.crowd.z)
 
     def handle_key(self, key):
-        if key == pygame.K_v:
-            self.camera.toggle_mode()
         if key == pygame.K_n:
             sound.toggle_mute()
         if self.state == MENU:
@@ -190,12 +200,14 @@ class Game:
             elif key == pygame.K_r:
                 self.start_level()
         elif self.state == PAUSED:
-            if key in (pygame.K_p, pygame.K_ESCAPE, pygame.K_SPACE):
-                self.state = PLAYING
-            elif key == pygame.K_r:
+            # ปุ่มที่มีหน้าที่ของตัวเอง: R เริ่มใหม่, M เมนู, N เปิด/ปิดเสียง (สลับไปแล้วข้างบน ไม่เล่นต่อ)
+            # ปุ่มอื่นทุกปุ่ม = เล่นต่อ ("Press any key to continue")
+            if key == pygame.K_r:
                 self.start_level()
             elif key == pygame.K_m:
                 self.go_to_menu()
+            elif key != pygame.K_n:
+                self.state = PLAYING
         elif self.state in (WIN, LOSE):
             if key == pygame.K_r:
                 self.start_level()
@@ -255,6 +267,7 @@ class Game:
         for popup in self.popups:
             popup[2] += dt
         self.popups = [p for p in self.popups if p[2] < C.POPUP_TIME]
+        self.effects.update(dt)
 
         if self.fight:
             self.update_fight(dt)
@@ -268,7 +281,13 @@ class Game:
         # ตรวจว่ากลุ่มคนวิ่ง "ถึง/เลย" object ไหนบ้างในเฟรมนี้
         # ใช้ >= แทน == เพราะ z เพิ่มทีละหลาย unit ต่อเฟรม อาจกระโดดข้ามค่าพอดีไป
         objects = self.level.objects
-        while self.next_index < len(objects) and self.crowd.z >= objects[self.next_index].z:
+        # กองศัตรูข้างหน้า (ถ้าเป็นของชิ้นถัดไป) วิ่งพุ่งเข้าหาเมื่อเข้าใกล้ ดู EnemyGroup.rush
+        nxt = objects[self.next_index] if self.next_index < len(objects) else None
+        if hasattr(nxt, "rush"):
+            nxt.rush(self.crowd, dt)
+            if nxt.rushing:
+                self.spawn_rush_dust(nxt, dt)
+        while self.next_index < len(objects) and self.reached(objects[self.next_index]):
             obj = objects[self.next_index]
             self.next_index += 1
             before = self.crowd.count
@@ -283,29 +302,83 @@ class Game:
         for obj in objects:
             obj.update(dt)
 
+        if self.fight:          # เพิ่งเริ่มปะทะ (เช่นบอสหลังเส้นชัย): ห้ามนับว่าชนะจนกว่าจะปะทะจบ
+            return
         if self.crowd.count <= 0:
             self.finish_level(False)
-        elif self.crowd.z >= self.level.finish_z:
+        elif self.crowd.back_z() >= self.level.finish_z + C.FINISH_DEPTH:
+            # จบด่านเมื่อคนท้ายสุดผ่านแถบเส้นชัยแล้ว (ทุกคนข้ามเส้น) ด่านที่มีบอส: บอสถูกเรียกก่อนในลูปข้างบน
             self.finish_level(True)
+
+    def reached(self, obj):
+        """กลุ่มคนวิ่งถึง obj หรือยัง  ของบนถนน: ศูนย์กลางก้อนถึง  บอส: คนท้ายสุดข้ามเส้นชัยแล้ว"""
+        if obj is self.level.boss:
+            return self.crowd.back_z() >= obj.z
+        return self.crowd.z >= obj.z
 
     def update_fight(self, dt):
         """ระหว่างปะทะ: ไม่วิ่ง ไม่อัปเดตสิ่งกีดขวาง
         ทำไมหยุดสิ่งกีดขวางด้วย: level.dodge_spans คิดจังหวะแกว่งจาก "ระยะทาง / ความเร็ว"
         ถ้าเวลาเดินระหว่างหยุดวิ่ง สิ่งกีดขวางข้างหน้าจะไม่อยู่ตรงที่เช็กไว้ว่าหลบทัน"""
         fight = self.fight
+        before = self.crowd.count
         fight.update(dt)
         self.crowd.update(dt)
-        self.camera.shake(C.SHAKE_FIGHT, 0.1)
+        if getattr(fight, "engaged", True):
+            self.camera.shake(C.SHAKE_FIGHT, 0.1)
+        if getattr(fight, "engaged", True):   # บอสที่ยังวิ่งเข้ามา: ยังไม่มีประกายหมัด
+            self.spawn_hits(fight, before - self.crowd.count, dt)
+        if getattr(fight, "impact", False):      # บอสโจมตีโดน
+            strength = getattr(fight, "impact_strength", 1.0)
+            if strength >= 1:                    # ทุบ/กระทืบหนักครั้งเดียว: สั่นแรง + ฝุ่นระเบิดเป็นวง
+                self.camera.shake(C.SHAKE_BOSS, 0.25)
+                self.effects.slam(fight.x, fight.contact_z - 15, 70)
+                sound.play("hit")
+            else:                                # หมัดรัว: สั่นเบาๆ ถี่ๆ + ประกายใหญ่ตรงคนแถวหน้า
+                self.camera.shake(C.SHAKE_BOSS * strength, 0.12)
+                front = self.crowd.front_z()
+                self.effects.hit(fight.x + random.uniform(-80, 80), front - random.uniform(5, 45),
+                                 random.uniform(8, 20), (C.WHITE, fight.chip_color), big=random.random() < 0.5)
+                if random.random() < 0.4:        # ไม่เล่นทุกหมัด ไม่งั้นเสียงรัวจนหนวกหู
+                    sound.play("hit")
         if not fight.fighting:
             self.fight = None
             if fight.lost:
                 self.add_popup(f"-{fight.lost}", C.GATE_BAD)
             if self.crowd.count <= 0:
-                self.lose_cause = "the enemy army"
+                self.lose_cause = getattr(fight, "name", "the enemy army")
             else:
                 sound.play("win_fight")
         if self.crowd.count <= 0:
             self.finish_level(False)
+
+    def spawn_rush_dust(self, enemy, dt):
+        """ฝุ่นฟุ้งจากเท้ากองศัตรูที่กำลังวิ่งเข้ามา (ทั่วทั้งกอง)"""
+        self.dust_timer += dt * RUSH_DUST_RATE
+        r = enemy.radius()
+        while self.dust_timer >= 1:
+            self.dust_timer -= 1
+            self.effects.puff(enemy.x + random.uniform(-r, r), enemy.z + random.uniform(0, 2 * r))
+
+    def spawn_hits(self, fight, lost, dt):
+        """ประกายหมัดตรงแนวที่สองฝั่งชนกัน ให้ดูเหมือนต่อยกันจริง
+        ต่อเนื่องตามเวลา (HIT_RATE) + เพิ่มตามจำนวนคนที่หายไปในเฟรมนี้ กองใหญ่จึงดูวุ่นกว่า"""
+        self.hit_timer += dt * HIT_RATE
+        n = int(self.hit_timer) + min(lost, 3)
+        self.hit_timer -= int(self.hit_timer)
+        people, k = self.crowd.people, self.crowd.spread()
+        contact = getattr(fight, "contact_z", None)          # บอส: ปะทะตรงหน้าตัวบอส
+        colors = (C.WHITE, getattr(fight, "chip_color", ENEMY_CHIP))
+        for _ in range(n):
+            x = self.crowd.x + (random.choice(people).dx * k if people else 0)   # ตรงตำแหน่งคนจริงในก้อน
+            if contact is not None:
+                # บอส: ประกายต่ำติดพื้น อยู่ใต้เท้าบอสบนจอ ไม่บังท่าโจมตี (ยกขา / ทุบหมัด)
+                x, z = max(fight.x - 35, min(fight.x + 35, x)), contact + random.uniform(-10, 10)
+                h = random.uniform(2, 9)
+            else:
+                z = fight.z + random.uniform(0, 25)           # ขอบหน้ากองศัตรูอยู่ที่ fight.z พอดี
+                h = random.uniform(10, 22)
+            self.effects.hit(x, z, h, colors, big=random.random() < 0.12)
 
     def react(self, obj, before):
         """เอฟเฟกต์หลังผ่าน object: ตัวเลขลอย, กล้องสั่น, เสียง และจำสาเหตุถ้าคนหมด"""
@@ -337,11 +410,8 @@ class Game:
         near, far = cam.z + C.Z_NEAR, cam.z + C.Z_FAR
 
         # ท้องฟ้า + พื้น
-        if cam.mode == "depth":
-            self.draw_sky()
-            pygame.draw.rect(self.screen, C.GROUND_A, (0, C.HORIZON_Y, C.SCREEN_W, C.SCREEN_H))
-        else:
-            self.screen.fill(C.GROUND_A)
+        self.draw_sky()
+        pygame.draw.rect(self.screen, C.GROUND_A, (0, C.HORIZON_Y, C.SCREEN_W, C.SCREEN_H))
 
         # พื้นหญ้าแถบสลับสี (perspective)
         band, gw = 120, 3000
@@ -366,27 +436,35 @@ class Game:
                         self.tuft_sprites[k], (w, max(1, int(w * 6 / 9))))
                 self.screen.blit(sprite, (sx - w // 2, sy - sprite.get_height()))
 
-        # ถนน = สี่เหลี่ยมคางหมูจากใกล้ไปไกล (ในโหมด flat จะกลายเป็นสี่เหลี่ยมผืนผ้าเอง)
+        # ถนน = สี่เหลี่ยมคางหมูจากใกล้ไปไกล
         corners = [cam.project(x, z)[:2] for x, z in
                    ((-C.ROAD_HALF_W, near), (C.ROAD_HALF_W, near), (C.ROAD_HALF_W, far), (-C.ROAD_HALF_W, far))]
         pygame.draw.polygon(self.screen, C.ROAD, corners)   # พื้นรองกันช่องโหว่
 
-        # ลายอิฐบนถนน: หั่นเป็นแถบบางๆ ตามแกน z ความกว้างแต่ละแถบตาม perspective
-        # ความหนาแถบปรับตามระยะ: ให้แต่ละแถบสูงบนจอ ~ROAD_STRIP_PX พิกเซล (ไกลๆ แถบเดียวคลุมหลายร้อย unit)
-        # ทำไม: เดิมหั่นทีละ 4 unit เสมอ = ~500 แถบ/เฟรม ส่วนใหญ่สูงไม่ถึง 1 พิกเซล เปลืองเวลาเปล่าๆ
-        min_step, tile = 4, 200        # min_step = แถบบางสุด (world unit) / tile = ความยาวลายต่อรอบ
-        n = len(self.road_rows)
+        # ลายอิฐบนถนน: หั่นเป็นแถบตามแกน z ความกว้างแต่ละแถบตาม perspective
+        # ทุกแถบตัดตรงขอบแถวของลาย (ไม่ตัดกลางแถว) และใช้แถวที่ "ละเอียดพอดี" กับระยะ:
+        #   ใกล้กล้อง: แถบละ 1 แถวของลาย สูงเท่าของจริง
+        #   ไกลออกไป: แถบเดียวคลุมหลายแถว -> ใช้แถวที่เฉลี่ยสีหลายแถวไว้แล้ว (road_mips ระดับ L = เฉลี่ย 2^L แถว)
+        # ทำไม: เดิมแต่ละแถบหยิบลายมาแถวเดียวตรงจุดเริ่มแถบแล้วยืดเต็มแถบ ถ้าบังเอิญเป็นแถวร่องอิฐ (สีเข้ม)
+        # จะได้แถบดำหนาพาดถนน ตอนวิ่งมันกระพริบจนไม่ค่อยเห็น แต่ตอนหยุด (ปะทะ) มันค้างเป็นรอยดำ
+        tile = ROAD_TILE
+        row_len = tile / len(self.road_rows)           # 1 แถวของลาย ยาวกี่ unit
+        top = len(self.road_mips) - 1
         z = near
         while z < far:
             dy = abs(cam.project(0, z + 1)[1] - cam.project(0, z)[1]) or 1e-6   # พิกเซลต่อ 1 unit ตรงนี้
-            z1 = min(z + max(min_step, ROAD_STRIP_PX / dy), far)
+            rows_per_strip = ROAD_STRIP_PX / dy / row_len                       # แถบสูง ~ROAD_STRIP_PX คลุมกี่แถว
+            level = min(top, int(math.log2(rows_per_strip))) if rows_per_strip >= 2 else 0
+            block = row_len * (1 << level)
+            index = int(z // block)
+            z1 = min((index + 1) * block, far)                                  # จบตรงขอบแถวพอดี
             xl, y0, _ = cam.project(-C.ROAD_HALF_W, z)
             xr, _, _ = cam.project(C.ROAD_HALF_W, z)
             _, y1, _ = cam.project(0, z1)
             w, h = int(xr - xl), int(abs(y0 - y1)) + 1       # +1 กันรอยแตก
             if w > 0 and h > 0:
-                v = (z % tile) / tile                         # ลายต่อเนื่องเอง ไม่ต้องสะท้อน
-                row = self.road_rows[min(n - 1, int(v * n))]
+                rows = self.road_mips[level]
+                row = rows[index % len(rows)]                 # ลายต่อเนื่องเอง (tile หาร block ลงตัว)
                 self.screen.blit(pygame.transform.scale(row, (w, h)), (xl, min(y0, y1)))
             z = z1
 
@@ -399,17 +477,31 @@ class Game:
             pygame.draw.line(self.screen, C.ROAD_EDGE, (x1, y1), (x2, y2), 3)
             z += step
 
-        # เส้นชัย
-        if cam.visible(self.level.finish_z):
-            x1, y, s = cam.project(-C.ROAD_HALF_W, self.level.finish_z)
-            x2, _, _ = cam.project(C.ROAD_HALF_W, self.level.finish_z)
-            pygame.draw.line(self.screen, C.FINISH_COLOR, (x1, y), (x2, y), max(2, int(12 * s)))
+        # เส้นชัย: แถบตาหมากรุกขาว-ดำ 2 แถว (เส้นดำเส้นเดียวดูเหมือนรอยแตกบนถนน)
+        fz = self.level.finish_z
+        if cam.visible(fz) or cam.visible(fz + C.FINISH_DEPTH):
+            cols, rows = 12, 2
+            cw, rd = 2 * C.ROAD_HALF_W / cols, C.FINISH_DEPTH / rows
+            for r in range(rows):
+                for c in range(cols):
+                    x0, z0 = -C.ROAD_HALF_W + c * cw, fz + r * rd
+                    if z0 + rd < near or z0 > far:
+                        continue
+                    pts = [cam.project(x, z)[:2] for x, z in
+                           ((x0, z0), (x0 + cw, z0), (x0 + cw, z0 + rd), (x0, z0 + rd))]
+                    pygame.draw.polygon(self.screen, C.FINISH_COLOR if (r + c) % 2 else C.WHITE, pts)
 
         # painter's algorithm: วาดของไกล (z มาก) ก่อน ของใกล้ทับทีหลัง
         # กลุ่มคนอยู่ใกล้กล้องที่สุดเสมอ จึงวาดท้ายสุด
         for obj in sorted(self.level.objects, key=lambda o: -o.z):
             obj.draw(self.screen, cam, self.font)
+        # ปะทะศัตรู/บอสอยู่: กลุ่มคนใช้ท่าต่อย (บอสที่ยังวิ่งเข้ามา: ยืนรอ ยังไม่ต่อย)
+        self.crowd.attacking = self.fight is not None and getattr(self.fight, "engaged", True)
+        self.crowd.waiting = self.fight is not None and not getattr(self.fight, "engaged", True)
         self.crowd.draw(self.screen, cam, self.font)
+        if self.fight is not None and hasattr(self.fight, "draw_overlay"):
+            self.fight.draw_overlay(self.screen, cam)   # รอยหมัดบอสที่ลงถึงตัวคน ต้องทับกลุ่มคน
+        self.effects.draw(self.screen, cam)             # ประกายหมัดวาดทับทุกอย่าง
 
     def draw(self):
         if self.state == MENU:

@@ -17,7 +17,7 @@ STAR_OFF = (90, 100, 130)
 
 
 def menu_row_rect(i):
-    """สี่เหลี่ยมของแถวด่านที่ i  (main.py ใช้เช็กว่าคลิกโดนแถวไหน)"""
+    """สี่เหลี่ยมของแถวด่านที่ i (ใช้วาดเมนู)"""
     return pygame.Rect(30, MENU_TOP + i * MENU_ROW_H, C.SCREEN_W - 60, MENU_ROW_H - 6)
 
 
@@ -101,8 +101,8 @@ def draw_menu(screen, big, small, levels, selected, scores, unlocked, unlock_all
             text = small.render(str(best["count"]), True, (190, 200, 230))
             screen.blit(text, text.get_rect(midright=(rect.right - 10, rect.centery)))
     hint_y = MENU_TOP + len(levels) * MENU_ROW_H + 20
-    draw_text_center(screen, small, "Win a level to unlock the next one", hint_y, (190, 200, 230))
-    draw_text_center(screen, small, "Up/Down + SPACE, or click a level", hint_y + 34, (190, 200, 230))
+    # draw_text_center(screen, small, "Win a level to unlock the next one", hint_y, (190, 200, 230))
+    draw_text_center(screen, small, "Up/Down + SPACE to choose a level", hint_y + 34, (190, 200, 230))
     draw_text_center(screen, small, "In game: P pause  R restart  N sound", hint_y + 68, (190, 200, 230))
     if unlock_all:
         draw_text_center(screen, small, "U: unlock all (testing)  [ON]", hint_y + 102, STAR_ON)
@@ -170,11 +170,19 @@ def panel(screen, rect):
 
 def draw_pause(screen, big, small, muted):
     dim(screen, 120)
-    panel(screen, pygame.Rect(50, 270, C.SCREEN_W - 100, 220))
-    draw_text_center(screen, big, "PAUSED", 320)
-    draw_text_center(screen, small, "P / ESC: resume", 390)
-    draw_text_center(screen, small, "R: restart    M: level menu", 424, MUTED)
-    draw_text_center(screen, small, f"N: sound {'off' if muted else 'on'}", 458, MUTED)
+    rect = pygame.Rect(0, 0, C.SCREEN_W - 100, 400)
+    rect.center = (C.SCREEN_W // 2, C.SCREEN_H // 2)
+    panel(screen, rect)
+    # panel(screen, pygame.Rect(50, C.SCREEN_H/2 , C.SCREEN_W - 100, 400))
+    draw_text_center(screen, big, "== PAUSED ==", 280)
+    draw_text_center(screen, small, "R: restart    M: level menu", 390, MUTED)
+    draw_text_center(screen, small, f"N: sound {'off' if muted else 'on'}", 424, MUTED)
+    # กระพริบ: โชว์ครึ่งวินาที หายครึ่งวินาที  วางชิดขอบล่างของแผ่น
+    if pygame.time.get_ticks() // BLINK_MS % 2 == 0:
+        draw_text_center(screen, small, "Press any key to continue", rect.bottom - 40)
+
+
+BLINK_MS = 700      # ข้อความ "Press any key" กระพริบสลับทุกกี่มิลลิวินาที
 
 
 def draw_popups(screen, font, popups, anchor):

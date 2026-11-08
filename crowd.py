@@ -6,8 +6,36 @@ from pathlib import Path
 
 import pygame
 import config as C
+import sprites
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "16x32"
+ATTACK_ROW = 4       # แถวล่างสุดของ Attack-Sheet: ต่อยแบบหันหลังให้กล้อง (หันเข้าหาศัตรู/บอส)
+ATTACK_SPEED = 1.2   # anim_t เดินราว 10/วินาที -> ท่าต่อย ~12 เฟรม/วินาที
+
+# รัศมีที่ 90% ของคนในก้อนอยู่ข้างใน ตามจำนวน "คนจำลอง" (ไม่เกิน SIM_PEOPLE)
+# วัดจากฟิสิกส์ใน Crowd.update() ตอน PERSON_SPACING = 9 (ก้อนอัดแน่นขึ้นเรื่อยๆ จึงไม่โตตาม sqrt ตรงๆ)
+# ใช้ให้กองศัตรูมีขนาดเท่ากลุ่มคนจำนวนเท่ากัน  ถ้าแก้ฟิสิกส์ test_enemy_group_same_size_as_crowd จะบอกให้วัดใหม่
+_RADIUS_TABLE = [(1, 1.1), (2, 4.3), (5, 9.1), (10, 12.4), (20, 18.0),
+                 (40, 21.2), (70, 22.8), (100, 23.3), (150, 23.7)]
+
+
+def blob_radius(count):
+    """รัศมีของก้อนคน count คน (90% ของคนอยู่ในวงนี้) สูตรเดียวกับที่ Crowd วาดจริง:
+    รัศมีของคนจำลอง x ตัวคูณ spread() (= (คนจริง / คนจำลอง) ** C.CROWD_GROWTH)"""
+    if count <= 0:
+        return 0.0
+    sim = min(count, C.SIM_PEOPLE)
+    r = _RADIUS_TABLE[-1][1]
+    for (n0, r0), (n1, r1) in zip(_RADIUS_TABLE, _RADIUS_TABLE[1:]):
+        if sim <= n1:
+            r = r0 + (r1 - r0) * (sim - n0) / (n1 - n0) if sim > n0 else r0
+            break
+    return r * (C.PERSON_SPACING / 9) * (count / sim) ** C.CROWD_GROWTH
+
+
+def edge_gap(count):
+    """ศูนย์กลางก้อน count คน เข้าใกล้ขอบถนนได้ไม่เกินระยะนี้ (ขอบนอกก้อนห่างขอบถนน ROAD_EDGE_MARGIN)"""
+    return blob_radius(count) + C.ROAD_EDGE_MARGIN
 
 class Person:
     def __init__(self, dx=0.0, dz=0.0):
@@ -24,10 +52,10 @@ class Crowd:
     def __init__(self, count):
         self.x = 0.0              # ตำแหน่งซ้าย-ขวาในโลก
         self.z = 0.0              # main.py อัปเดตให้ = camera.z + CROWD_OFFSET ทุกเฟรม
-        self.target_x = None      # ถ้าคุมด้วยเมาส์ จะเลื่อนเข้าหาจุดนี้
         self.people = []          # คนที่จำลองฟิสิกส์จริง (ไม่เกิน C.SIM_PEOPLE) ใช้วาด + เช็กชน
         self._count = 0           # จำนวนคนจริง อาจมากกว่า len(people) มาก
         self.sprite_cache = {}    # (เฟรม, กว้าง, สูง) -> ภาพที่ย่อแล้ว
+        self.attacking = False    # main.py ตั้งเป็น True ระหว่างปะทะศัตรู/บอส: วาดท่าต่อยแทนท่าวิ่ง
 
         # ==========================================
         # 1. ส่วนค้นหาและโหลดไฟล์ภาพ (ของคุณ Setthawut เดิม)
@@ -118,9 +146,9 @@ class Crowd:
 
     def spread(self):
         """ตัวคูณระยะของคนตัวแทน -> ระยะจริง
-        ยกกำลัง 0.4 (ไม่ใช่ 0.5): วัดแล้วตอนจำลองทุกคน ก้อนใหญ่อัดแน่นกว่าสูตรพื้นที่ล้วน
-        ค่านี้ทำให้ความกว้างก้อนใกล้ของเดิม (1000 คน แผ่ข้างละ ~60)"""
-        return (self._count / len(self.people)) ** 0.4 if self.people else 1.0
+        ยกกำลัง C.CROWD_GROWTH: ต่ำกว่า 0.5 (สูตรพื้นที่) เพราะวาดแค่ MAX_DRAWN_PEOPLE คน
+        ถ้าก้อนขยายเต็มที่ คนที่วาดจะกระจายห่างกันจนดูโหรง"""
+        return (self._count / len(self.people)) ** C.CROWD_GROWTH if self.people else 1.0
 
     def offset(self, p):
         """ตำแหน่ง (dx, dz) จริงของคนตัวแทน p เทียบกับศูนย์กลางก้อน"""
@@ -159,24 +187,37 @@ class Crowd:
         return lost
 
 
+    def depth_range(self):
+        """(คนหลังสุด, คนหน้าสุด) ตามแกน z เทียบกับศูนย์กลางก้อน  นับเฉพาะคนที่วาดจริง (ที่ผู้เล่นเห็น)"""
+        drawn = self.people[:C.MAX_DRAWN_PEOPLE]
+        if not drawn:
+            return 0.0, 0.0
+        k = self.spread()
+        dz = [p.dz for p in drawn]
+        return min(dz) * k, max(dz) * k
+
+    def back_z(self):
+        """z ของคนที่อยู่ท้ายสุด (main.py: ต้องผ่านเส้นชัยทุกคนก่อนจบด่าน/เริ่มสู้บอส)"""
+        return self.z + self.depth_range()[0]
+
+    def front_z(self):
+        """z ของคนที่อยู่หน้าสุด (boss.py: บอสเดินมาหยุดตรงหน้าคนแถวแรก)"""
+        return self.z + self.depth_range()[1]
+
     def radius(self):
-        """รัศมีของก้อนคน โดยประมาณ (ใช้กันไม่ให้ตกขอบถนน / คำนวณการชน)"""
-        return C.PERSON_SPACING * math.sqrt(min(self.count, C.MAX_DRAWN_PEOPLE))
+        """ระยะที่ศูนย์กลางก้อนต้องห่างขอบถนน = ขนาดจริงของก้อน (blob_radius) + ROAD_EDGE_MARGIN
+        ก้อนทุกขนาดจึงหยุดห่างขอบถนนเท่ากัน  level.crowd_limit ใช้สูตรเดียวกัน (ต้องแก้คู่กัน)"""
+        return edge_gap(self.count)
 
     def move(self, direction, dt, forward_speed=0):
         """direction: -1 = ซ้าย, +1 = ขวา, 0 = อยู่นิ่ง  (คีย์บอร์ด)
         forward_speed: ความเร็ววิ่งของด่าน  ยิ่งวิ่งเร็ว ยิ่งเลี้ยวเร็ว ไม่งั้นด่านเร็วๆ หลบไม่ทัน"""
         if direction:
-            self.target_x = None
             side = max(C.CROWD_SIDE_SPEED, forward_speed * C.CROWD_SIDE_RATIO)
             self.x += direction * side * dt
 
     def update(self, dt):
-        # 1. เลี้ยวตามเมาส์ (ถ้ามี)
-        if self.target_x is not None:
-            self.x += (self.target_x - self.x) * min(1.0, 10 * dt)
-            
-        # 2. ห้ามหลุดถนน
+        # 1. ห้ามหลุดถนน
         limit = max(0.0, C.ROAD_HALF_W - self.radius())
         self.x = max(-limit, min(limit, self.x))
         
@@ -189,7 +230,7 @@ class Crowd:
         self.last_x = self.x  # เซฟตำแหน่งปัจจุบันไว้ใช้ในเฟรมถัดไป
 
         # --- โค้ดฟิสิกส์ด้านล่าง ปล่อยให้มันทำงานตามเดิมเลยครับ ---
-        target_r = C.PERSON_SPACING * math.sqrt(len(self.people)) * 0.8
+        target_r = C.PERSON_SPACING * 0.8
         for p in self.people:
             fx = fz = 0.0
             # ดึงเข้าหาศูนย์กลาง
@@ -233,22 +274,30 @@ class Crowd:
             # 📌 1. เลือก "กลุ่มลิ้นชักภาพที่หั่นไว้แล้ว" ตามทิศทางการวิ่ง
              # ในฟังก์ชัน draw
             # ใช้ความเร็วเลี้ยวรวมของกลุ่ม (crowd_vx) เป็นตัวตัดสินใจ
-            if getattr(self, 'crowd_vx', 0) < -50:
-                current_frames = self.frames_left
-            elif getattr(self, 'crowd_vx', 0) > 50:
-                current_frames = self.frames_right
+            if getattr(self, "waiting", False):
+                # บอสกำลังวิ่งเข้ามา: ยืนรอ (หันหลังให้กล้องเหมือนตอนต่อย)
+                current_frames = sprites.frames("Idle", ATTACK_ROW)
+                frame_index = int(p.anim_t * ATTACK_SPEED) % len(current_frames)
+            elif self.attacking:
+                # ระหว่างปะทะ: ท่าต่อย  anim_t แต่ละคนเริ่มไม่เท่ากัน จึงต่อยสลับจังหวะกันเอง ไม่พร้อมกันทั้งก้อน
+                current_frames = sprites.frames("Attack", ATTACK_ROW)
+                frame_index = int(p.anim_t * ATTACK_SPEED) % len(current_frames)
             else:
-                current_frames = self.frames_straight
+                if getattr(self, 'crowd_vx', 0) < -50:
+                    current_frames = self.frames_left
+                elif getattr(self, 'crowd_vx', 0) > 50:
+                    current_frames = self.frames_right
+                else:
+                    current_frames = self.frames_straight
+                # 📌 2. คำนวณเฟรมภาพที่ต้องดึงมาแสดงผล (วนลูป 0 ถึง 5)
+                frame_index = int(p.anim_t) % self.total_frames
 
-            # 📌 2. คำนวณเฟรมภาพที่ต้องดึงมาแสดงผล (วนลูป 0 ถึง 5)
-            frame_index = int(p.anim_t) % self.total_frames
-            
             # 📌 3. หยิบภาพที่ตัดไว้แล้วออกมาจากลิ้นชักได้เลย (ไม่ต้องตัดใหม่แล้ว!)
             frame_surface = current_frames[frame_index]
-            
+
             # 📌 4. ย่อ/ขยายรูปภาพตัวละครตามระยะลึก (3D Scale)
-            new_w = max(1, int(self.frame_width * scale))
-            new_h = max(1, int(self.frame_height * scale))
+            new_w = max(1, int(frame_surface.get_width() * scale))
+            new_h = max(1, int(frame_surface.get_height() * scale))
             # ย่อภาพครั้งเดียวต่อขนาด แล้วเก็บไว้ใช้ซ้ำ (scale ทุกคนทุกเฟรมกินเวลามาก)
             key = (id(frame_surface), new_w, new_h)
             scaled_sprite = self.sprite_cache.get(key)

@@ -11,17 +11,20 @@ import config as C
 from gate import GatePair
 from obstacle import Obstacle
 from enemy import EnemyGroup
+from crowd import edge_gap
+from boss import Boss         # Boss เป็น EnemyGroup: best_count / difficulty นับรวมให้เอง
 
 LEVEL_DIR = Path(__file__).parent / "levels"
 
 
 class Level:
-    def __init__(self, name, start_count, speed, finish_z, objects):
+    def __init__(self, name, start_count, speed, finish_z, objects, boss=None):
         self.name = name
         self.start_count = start_count
         self.speed = speed          # ความเร็ววิ่งไปข้างหน้า (units/วินาที)
         self.finish_z = finish_z
-        self.objects = objects      # เรียงตาม z น้อยไปมาก
+        self.objects = objects      # เรียงตาม z น้อยไปมาก (บอสอยู่ท้ายสุด หลังเส้นชัย)
+        self.boss = boss            # Boss หรือ None
 
 
 def build_object(data):
@@ -42,7 +45,13 @@ def load_level(filename, rng=None):
     with open(LEVEL_DIR / filename, encoding="utf-8") as f:
         data = json.load(f)
     objects = sorted((build_object(o) for o in data["objects"]), key=lambda o: o.z)
-    level = Level(data["name"], data["start_count"], data["speed"], data["finish_z"], objects)
+    boss = None
+    if "boss" in data:   # "boss": {"kind": 1, "count": 80}  ยืนหลังเส้นชัย ปะทะเมื่อคนผ่านเส้นหมดแล้ว
+        b = data["boss"]
+        # z ของบอส = ขอบหลังแถบเส้นชัย: main.py เริ่มปะทะเมื่อคนท้ายสุดพ้นตรงนี้
+        boss = Boss(data["finish_z"] + C.FINISH_DEPTH, b["count"], b.get("kind", 1))
+        objects.append(boss)
+    level = Level(data["name"], data["start_count"], data["speed"], data["finish_z"], objects, boss)
     if rng is not None:
         randomize_gates(level, rng)
         randomize_obstacles(level, rng)   # หลังประตู เพราะต้องรู้จำนวนคน (ความกว้างก้อนคน) ตอนถึงแต่ละอัน
@@ -223,8 +232,8 @@ def crowd_half_width(count):
 
 
 def crowd_limit(count):
-    """ศูนย์กลางก้อนไปได้ไกลสุดเท่าไร (สูตรเดียวกับ Crowd.radius ใน crowd.py ที่กันตกถนน)"""
-    return C.ROAD_HALF_W - C.PERSON_SPACING * math.sqrt(min(count, C.MAX_DRAWN_PEOPLE))
+    """ศูนย์กลางก้อนไปได้ไกลสุดเท่าไร (ใช้ edge_gap ตัวเดียวกับ Crowd.radius ที่กันตกถนน)"""
+    return max(0.0, C.ROAD_HALF_W - edge_gap(count))
 
 
 def obstacle_style(level):
