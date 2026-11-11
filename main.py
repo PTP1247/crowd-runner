@@ -2,10 +2,11 @@
 
 รัน:  python main.py
 
-State machine:  MENU --(เลือกด่าน: space/enter)--> PLAYING --(ถึงเส้นชัย)--> WIN
+State machine:  MENU --(เลือกด่าน: space/enter/คลิก)--> PLAYING --(ถึงเส้นชัย)--> WIN
                                                          +--(คนเหลือ 0)--> LOSE
-                PLAYING --(P / Esc)--> PAUSED --(ปุ่มอะไรก็ได้)--> PLAYING,  --(M)--> MENU
-                WIN/LOSE --(R)--> PLAYING ด่านเดิม,  --(Enter)--> ด่านถัดไป (ชนะ) / เล่นใหม่ (แพ้),  --(M)--> MENU
+                PLAYING --(P / Esc)--> PAUSED --(Esc / P)--> PLAYING,  --(M)--> MENU
+                MENU --(ปุ่ม Music & Sound)--> SETTINGS --(Esc / คลิกนอกแผ่น)--> MENU
+                WIN --(R)--> PLAYING ด่านเดิม,  --(Enter)--> ด่านถัดไป (ชนะ) / เล่นใหม่ (แพ้),  --(M)--> MENU
 """
 import sys
 import math
@@ -13,24 +14,32 @@ import random
 import bisect
 import pygame
 
-import config as C
-import ui
-import scores
-from camera import Camera
-from crowd import Crowd
-import sound
-from gate import GatePair
-from level import load_level, list_levels, best_count, difficulty
-from obstacle import Obstacle
-from effects import Effects
+from game.core import config as C
+from game import ui
+from game.core import scores
+from game.core.camera import Camera
+from game.world.crowd import Crowd
+from game.core import sound
+from game.world.gate import GatePair
+from game.world.level import load_level, list_levels, best_count, difficulty
+from game.world.obstacle import Obstacle
+from game.world.effects import Effects
+from game.world.enemy import EnemyGroup, pull_crowd
+from game.world import trees
 
 MENU, PLAYING, PAUSED, WIN, LOSE = "menu", "playing", "paused", "win", "lose"
+SETTINGS = "settings"     # หน้าปรับเสียงที่เปิดจากเมนู
+SOUND_ITEM = "sound"      # ในเมนู: ไฮไลต์อยู่ที่ปุ่ม Music & Sound (ต่อท้ายรายการด่าน)
+PAUSE_LEFT = (pygame.K_LEFT, pygame.K_a)       # หน้าหยุดเกม/หน้าปรับเสียง: ลดความดัง
+PAUSE_RIGHT = (pygame.K_RIGHT, pygame.K_d)     # เพิ่มความดัง
+PAUSE_STEP = 0.1          # กดหนึ่งครั้ง = 10%
+PAUSE_HOLD = 0.35         # กดค้างเกินกี่วินาทีถึงเลื่อนต่อเนื่อง
+PAUSE_SLIDE = 0.8         # เลื่อนต่อเนื่องกี่ส่วนต่อวินาที (0.8 = 80%/วินาที)
 ROAD_STRIP_PX = 2      # ลายอิฐบนถนน: แถบไกลๆ สูงบนจอประมาณกี่พิกเซล (น้อย = เนียนแต่ช้า)
 ROAD_TILE = 200        # ลายอิฐ 1 รอบยาวกี่ unit ตามแกน z
 TIP_TIME = 5.0         # คำแนะนำด่านแรกโชว์กี่วินาที
 HIT_RATE = 14          # ระหว่างปะทะ: ประกายหมัดอย่างน้อยกี่ครั้งต่อวินาที (บวกเพิ่มตามจำนวนคนที่หายไป)
 RUSH_DUST_RATE = 30    # ศัตรูวิ่งเข้ามา: ฝุ่นฟุ้งกี่ก้อนต่อวินาที
-ENEMY_CHIP = (240, 110, 95)  # สีเศษที่กระเด็นจากฝั่งศัตรู (ตรงกับสีที่ย้อม sprite ศัตรู)
 TIPS = ["Steer: Left/Right or A/D", "Take the gate that gives MORE people",
         "Dodge red blocks, beat the red army"]
 
@@ -48,12 +57,20 @@ class Game:
         self.road_mips = self.make_road_mips(self.road_rows)
         self.tuft_sprites = self.make_tuft_sprites()
         self.tuft_cache = {}                     # (แบบ, กว้าง) -> กอหญ้าที่ย่อแล้ว
+        tree_sprites = trees.make_tree_sprites()  # ต้นไม้ข้างถนน 3 แบบ + ดอกไม้ + แบบกลับซ้ายขวา
+        self.tree_sprites = [tree_sprites, [pygame.transform.flip(t, True, False) for t in tree_sprites]]
+        self.tree_cache = {}
         self.clouds = self.make_clouds()
         self.level_files = list_levels()
-        self.level_names = [(f, load_level(f).name) for f in self.level_files]
-        self.level_tiers = [ui.difficulty_tier(difficulty(load_level(f))) for f in self.level_files]
+        plain = [load_level(f) for f in self.level_files]      # ด่านตามไฟล์ (ไม่สุ่ม) โหลดครั้งเดียว ใช้ชื่อ + ความยากในเมนู
+        self.level_names = [(f, lv.name) for f, lv in zip(self.level_files, plain)]
+        self.level_tiers = [ui.difficulty_tier(difficulty(lv)) for lv in plain]
         self.selected = 0                       # index ด่านที่เลือกในเมนู
         self.scores = scores.load_scores()
+        self.menu_button = False                # เมนู: ไฮไลต์อยู่ที่ปุ่ม Music & Sound (ไม่ใช่แถวด่าน)
+        self.pause_focus = 0                    # หน้าหยุดเกม/หน้าปรับเสียง: แถวที่เลือก (0 = Music, 1 = Effect)
+        self.pause_drag = None                  # กำลังลากสไลเดอร์แถวไหนด้วยเมาส์
+        self.pause_hold = 0.0                   # กดซ้าย/ขวาค้างมานานเท่าไร (ค้างนานแล้วเลื่อนต่อเนื่อง)
         self.unlock_all = False                 # ปุ่ม U ในเมนู: ปลดล็อกทุกด่านชั่วคราว (ไว้ทดสอบ/โชว์ ไม่บันทึกลงไฟล์)
         self.state = MENU
         self.reset()
@@ -66,6 +83,7 @@ class Game:
         self.camera.z = 0.0
         self.next_index = 0  # object ถัดไปใน level.objects ที่กลุ่มคนยังไม่ถึง
         self.fight = None    # ศัตรูที่กำลังปะทะอยู่ (ระหว่างนี้หยุดวิ่ง)
+        self.boss_music = False   # บอสเริ่มตีกันแล้ว: เปิดเพลงบอสค้างไว้จนจบด่าน (ดู music_theme)
         self.popups = []     # [ข้อความ, สี, อายุวินาที] ตัวเลขลอยเหนือก้อนคน
         self.lose_cause = None
         self.elapsed = 0.0   # เล่นด่านนี้มากี่วินาทีแล้ว (ใช้โชว์คำแนะนำช่วงแรก)
@@ -73,6 +91,8 @@ class Game:
         self.hit_timer = 0.0
         self.dust_timer = 0.0
         self.make_tufts()
+        self.trees = trees.scatter(self.level.finish_z, random)   # ตำแหน่งต้นไม้สุ่มใหม่ทุกรอบ
+        self.tree_zs = [t[0] for t in self.trees]
 
     # ---------------- สร้างลายพิกเซล ----------------
     def make_road_rows(self, w=96, h=128):
@@ -169,16 +189,32 @@ class Game:
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                sound.save_settings()          # ปรับเสียงในหน้าหยุดแล้วปิดหน้าต่างเลย ก็ยังจำค่าไว้
                 pygame.quit()
                 sys.exit()
             if event.type == pygame.KEYDOWN:
                 self.handle_key(event.key)
+            elif self.state in (PAUSED, SETTINGS) and event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN,
+                                                                      pygame.MOUSEBUTTONUP):
+                self.handle_pause_mouse(event)
+            elif self.state == MENU and event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
+                self.handle_menu_mouse(event)
+        if self.state in (PAUSED, SETTINGS):
+            self.hold_pause_keys()
 
-        # คุมด้วยคีย์บอร์ดอย่างเดียว (ไม่รับเมาส์)  ระหว่างปะทะศัตรู/บอส เลี้ยวไม่ได้ (ยืนสู้อยู่กับที่)
-        if self.state == PLAYING and self.fight is None:
+        # คุมด้วยคีย์บอร์ดอย่างเดียว (ไม่รับเมาส์)  เจอศัตรูแล้ว (วิ่งเข้าหา + ปะทะ) เลี้ยวไม่ได้ ถูกดึงเข้าหาศัตรู
+        if self.state == PLAYING and not self.crowd_locked():
             keys = pygame.key.get_pressed()
             direction = (keys[pygame.K_RIGHT] or keys[pygame.K_d]) - (keys[pygame.K_LEFT] or keys[pygame.K_a])
             self.crowd.move(direction, self.dt, self.level.speed)
+
+    def crowd_locked(self):
+        """เจอศัตรูแล้ว: ตั้งแต่ศัตรูวิ่งพุ่งเข้าหาจนปะทะจบ ผู้เล่นคุมกลุ่มคนไม่ได้"""
+        if self.fight is not None:
+            return True
+        objects = self.level.objects
+        nxt = objects[self.next_index] if self.next_index < len(objects) else None
+        return isinstance(nxt, EnemyGroup) and nxt.rushing
 
     def handle_key(self, key):
         if key == pygame.K_n:
@@ -189,8 +225,8 @@ class Game:
             elif key in (pygame.K_DOWN, pygame.K_s):
                 self.move_selection(1)
             elif key in (pygame.K_SPACE, pygame.K_RETURN):
-                self.start_level()
-            elif key == pygame.K_u:
+                self.open_settings() if self.menu_button else self.start_level()
+            elif key == pygame.K_u:                    # ปุ่มลับไว้ทดสอบ/โชว์ (ไม่มีคำแนะนำบนจอ)
                 self.unlock_all = not self.unlock_all
                 if not self.unlocked(self.selected):   # ปิดแล้วด่านที่เลือกอยู่ล็อก กลับไปด่านแรก
                     self.selected = 0
@@ -200,16 +236,21 @@ class Game:
             elif key == pygame.K_r:
                 self.start_level()
         elif self.state == PAUSED:
-            # ปุ่มที่มีหน้าที่ของตัวเอง: R เริ่มใหม่, M เมนู, N เปิด/ปิดเสียง (สลับไปแล้วข้างบน ไม่เล่นต่อ)
-            # ปุ่มอื่นทุกปุ่ม = เล่นต่อ ("Press any key to continue")
-            if key == pygame.K_r:
-                self.start_level()
-            elif key == pygame.K_m:
-                self.go_to_menu()
-            elif key != pygame.K_n:
-                self.state = PLAYING
+            # ปุ่มที่มีหน้าที่ของตัวเอง: R เริ่มใหม่, M เมนู, N เปิด/ปิดเสียงทั้งหมด (สลับไปแล้วข้างบน)
+            # Esc (หรือ P ปุ่มเดียวกับตอนกดหยุด) = เล่นต่อ ("Press ESC to continue")  ปุ่มอื่นไม่ทำอะไร
+            if self.sound_key(key):
+                pass
+            elif key in (pygame.K_r, pygame.K_m):
+                sound.save_settings()
+                self.start_level() if key == pygame.K_r else self.go_to_menu()
+            elif key in (pygame.K_ESCAPE, pygame.K_p):
+                self.close_sound_panel(PLAYING)
+        elif self.state == SETTINGS:
+            # หน้าปรับเสียงจากเมนู: ปุ่มเหมือนหน้าหยุดเกม  Esc/Backspace = กลับเมนู ("Press ESC to go back")
+            if not self.sound_key(key) and key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+                self.close_sound_panel(MENU)
         elif self.state in (WIN, LOSE):
-            if key == pygame.K_r:
+            if key == pygame.K_r and self.state == WIN:   # แพ้: ไม่มี R (Enter = เล่นใหม่)
                 self.start_level()
             elif key in (pygame.K_RETURN, pygame.K_SPACE):
                 # ชนะ: ไปด่านถัดไปเลย (ถ้ามี)  แพ้: เล่นใหม่
@@ -218,6 +259,97 @@ class Game:
                 self.start_level()
             elif key == pygame.K_m:
                 self.go_to_menu()
+
+    def sound_key(self, key):
+        """ปุ่มในแผ่นปรับเสียง (หน้าหยุดเกม + หน้าปรับเสียง): ขึ้น/ลง (W/S) เลือกแถว,
+        ซ้าย/ขวา (A/D) ปรับความดังทีละ 10%, Enter/Space เปิด/ปิดกล่อง   คืน True ถ้าเป็นปุ่มของแผ่นนี้"""
+        channel = ui.PAUSE_ROWS[self.pause_focus][0]
+        if key in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
+            step = -1 if key in (pygame.K_UP, pygame.K_w) else 1
+            self.pause_focus = (self.pause_focus + step) % len(ui.PAUSE_ROWS)
+        elif key in PAUSE_LEFT + PAUSE_RIGHT:
+            step = -PAUSE_STEP if key in PAUSE_LEFT else PAUSE_STEP
+            sound.set_volume(channel, round((sound.settings[channel]["volume"] + step) / PAUSE_STEP) * PAUSE_STEP)
+            self.pause_hold = 0.0
+        elif key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+            sound.toggle(channel)
+        else:
+            return False
+        return True
+
+    def open_settings(self):
+        """ปุ่ม Music & Sound ในเมนู -> หน้าปรับเสียง"""
+        self.pause_focus = 0
+        self.pause_drag = None
+        self.state = SETTINGS
+
+    def close_sound_panel(self, state):
+        """ออกจากหน้าหยุดเกม/หน้าปรับเสียง: บันทึกค่าเสียงลงไฟล์ แล้วไปหน้า state"""
+        sound.save_settings()
+        self.pause_drag = None
+        self.state = state
+
+    def hold_pause_keys(self):
+        """กดซ้าย/ขวาค้าง: กดครั้งแรกเลื่อน 10% (handle_key) ค้างเกิน PAUSE_HOLD วินาทีแล้วเลื่อนต่อเนื่อง"""
+        keys = pygame.key.get_pressed()
+        direction = any(keys[k] for k in PAUSE_RIGHT) - any(keys[k] for k in PAUSE_LEFT)
+        if not direction:
+            self.pause_hold = 0.0
+            return
+        self.pause_hold += self.dt
+        if self.pause_hold > PAUSE_HOLD:
+            channel = ui.PAUSE_ROWS[self.pause_focus][0]
+            sound.set_volume(channel, sound.settings[channel]["volume"] + direction * PAUSE_SLIDE * self.dt)
+
+    def handle_menu_mouse(self, event):
+        """เมาส์ในเมนูเลือกด่าน: ชี้แถว = เลือก (ไฮไลต์), คลิกซ้าย = เริ่มด่านนั้น  ด่านที่ล็อกอยู่ไม่ตอบสนอง
+        ปุ่ม Music & Sound: ชี้ = ไฮไลต์, คลิก = เปิดหน้าปรับเสียง"""
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button != 1:
+            return
+        if ui.SOUND_BUTTON.collidepoint(event.pos):
+            self.menu_button = True
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                self.open_settings()
+            return
+        for i in range(len(self.level_files)):
+            if ui.menu_row_rect(i).collidepoint(event.pos) and self.unlocked(i):
+                self.selected = i
+                self.menu_button = False
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    self.start_level()
+                return
+
+    def handle_pause_mouse(self, event):
+        """เมาส์ในหน้าหยุดเกม/หน้าปรับเสียง: ชี้แถว = ไฮไลต์, คลิก/ลากราง = ปรับความดัง, คลิกกล่อง = เปิด/ปิด
+        หน้าปรับเสียง: คลิกนอกแผ่น = กลับเมนู"""
+        panel = ui.PAUSE_PANEL if self.state == PAUSED else ui.SOUND_PANEL
+        layout = ui.pause_layout(panel)
+        if event.type == pygame.MOUSEBUTTONUP:
+            if self.pause_drag is not None:
+                sound.save_settings()
+            self.pause_drag = None
+            return
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button != 1:
+            return
+        if (event.type == pygame.MOUSEBUTTONDOWN and self.state == SETTINGS
+                and not panel.collidepoint(event.pos)):
+            self.close_sound_panel(MENU)
+            return
+        if self.pause_drag is None:
+            for i, part in enumerate(layout):
+                if part["row"].collidepoint(event.pos):
+                    self.pause_focus = i
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            part = layout[self.pause_focus]
+            if part["box"].inflate(10, 10).collidepoint(event.pos):
+                sound.toggle(ui.PAUSE_ROWS[self.pause_focus][0])
+                sound.save_settings()
+                return
+            if part["track"].inflate(24, 24).collidepoint(event.pos):
+                self.pause_drag = self.pause_focus
+        if self.pause_drag is not None:
+            track = layout[self.pause_drag]["track"]
+            sound.set_volume(ui.PAUSE_ROWS[self.pause_drag][0], (event.pos[0] - track.x - 8) / (track.w - 16))
 
     def go_to_menu(self):
         # ชนะแล้วเลื่อนไปด่านถัดไปที่เพิ่งปลดล็อกให้เลย
@@ -232,14 +364,13 @@ class Game:
         return self.unlock_all or scores.is_unlocked(self.level_files, i, self.scores)
 
     def move_selection(self, step):
-        """เลื่อนไปด่านที่ปลดล็อกแล้วถัดไป (ข้ามด่านที่ล็อก วนรอบได้)"""
-        n = len(self.level_files)
-        i = self.selected
-        for _ in range(n):
-            i = (i + step) % n
-            if self.unlocked(i):
-                self.selected = i
-                return
+        """เลื่อนไปแถวถัดไปในเมนู: ด่านที่ปลดล็อกแล้ว (ข้ามด่านที่ล็อก) แล้วปุ่ม Music & Sound ท้ายสุด วนรอบได้"""
+        items = [i for i in range(len(self.level_files)) if self.unlocked(i)] + [SOUND_ITEM]
+        now = SOUND_ITEM if self.menu_button else self.selected
+        nxt = items[(items.index(now) + step) % len(items)]
+        self.menu_button = nxt == SOUND_ITEM
+        if not self.menu_button:
+            self.selected = nxt
 
     def start_level(self):
         self.reset()
@@ -283,7 +414,7 @@ class Game:
         objects = self.level.objects
         # กองศัตรูข้างหน้า (ถ้าเป็นของชิ้นถัดไป) วิ่งพุ่งเข้าหาเมื่อเข้าใกล้ ดู EnemyGroup.rush
         nxt = objects[self.next_index] if self.next_index < len(objects) else None
-        if hasattr(nxt, "rush"):
+        if isinstance(nxt, EnemyGroup):
             nxt.rush(self.crowd, dt)
             if nxt.rushing:
                 self.spawn_rush_dust(nxt, dt)
@@ -292,7 +423,7 @@ class Game:
             self.next_index += 1
             before = self.crowd.count
             obj.on_reach(self.crowd)
-            if getattr(obj, "fighting", False):
+            if isinstance(obj, EnemyGroup) and obj.fighting:
                 # ปะทะศัตรู: หยุดวิ่งจนกว่าจะจบ (ดู update_fight)
                 self.fight = obj
                 sound.play("fight")
@@ -323,13 +454,15 @@ class Game:
         fight = self.fight
         before = self.crowd.count
         fight.update(dt)
+        pull_crowd(self.crowd, fight.x, dt)       # ระหว่างปะทะ: ไหลเข้าหาศัตรู/บอสจนตรงกัน
         self.crowd.update(dt)
-        if getattr(fight, "engaged", True):
+        if fight.engaged:                        # บอสที่ยังวิ่งเข้ามา: ยังไม่สั่น ยังไม่มีประกายหมัด
+            if fight is self.level.boss:
+                self.boss_music = True
             self.camera.shake(C.SHAKE_FIGHT, 0.1)
-        if getattr(fight, "engaged", True):   # บอสที่ยังวิ่งเข้ามา: ยังไม่มีประกายหมัด
             self.spawn_hits(fight, before - self.crowd.count, dt)
-        if getattr(fight, "impact", False):      # บอสโจมตีโดน
-            strength = getattr(fight, "impact_strength", 1.0)
+        if fight.impact:                         # บอสโจมตีโดน
+            strength = fight.impact_strength
             if strength >= 1:                    # ทุบ/กระทืบหนักครั้งเดียว: สั่นแรง + ฝุ่นระเบิดเป็นวง
                 self.camera.shake(C.SHAKE_BOSS, 0.25)
                 self.effects.slam(fight.x, fight.contact_z - 15, 70)
@@ -346,7 +479,7 @@ class Game:
             if fight.lost:
                 self.add_popup(f"-{fight.lost}", C.GATE_BAD)
             if self.crowd.count <= 0:
-                self.lose_cause = getattr(fight, "name", "the enemy army")
+                self.lose_cause = fight.name
             else:
                 sound.play("win_fight")
         if self.crowd.count <= 0:
@@ -367,8 +500,8 @@ class Game:
         n = int(self.hit_timer) + min(lost, 3)
         self.hit_timer -= int(self.hit_timer)
         people, k = self.crowd.people, self.crowd.spread()
-        contact = getattr(fight, "contact_z", None)          # บอส: ปะทะตรงหน้าตัวบอส
-        colors = (C.WHITE, getattr(fight, "chip_color", ENEMY_CHIP))
+        contact = fight.contact_z                            # บอส: ปะทะตรงหน้าตัวบอส
+        colors = (C.WHITE, fight.chip_color)
         for _ in range(n):
             x = self.crowd.x + (random.choice(people).dx * k if people else 0)   # ตรงตำแหน่งคนจริงในก้อน
             if contact is not None:
@@ -405,6 +538,27 @@ class Game:
         self.popups.append([text, color, 0.0])
 
     # ---------------- draw ----------------
+    def draw_tree(self, tree):
+        """ต้นไม้หนึ่งต้นบนหญ้าข้างถนน: ขนาดตามระยะ (ย่อแล้วเก็บไว้ใช้ซ้ำ ปัดขนาดของต้นใกล้ๆ ไม่ให้แคชบวม)"""
+        z, x, kind, flip = tree
+        sx, sy, s = self.camera.project(x, z)
+        sprite = self.tree_sprites[flip][kind]
+        w = int(sprite.get_width() * trees.SCALES[kind] * s)
+        if w < 3:
+            return
+        if w > 120:
+            w -= w % 8
+        if sx + w < 0 or sx - w > C.SCREEN_W:
+            return
+        key = (flip, kind, w)
+        image = self.tree_cache.get(key)
+        if image is None:
+            if len(self.tree_cache) > 300:
+                self.tree_cache.clear()
+            h = max(1, w * sprite.get_height() // sprite.get_width())
+            image = self.tree_cache[key] = pygame.transform.scale(sprite, (w, h))
+        self.screen.blit(image, (sx - w // 2, sy - image.get_height()))
+
     def draw_world(self):
         cam = self.camera
         near, far = cam.z + C.Z_NEAR, cam.z + C.Z_FAR
@@ -492,22 +646,37 @@ class Game:
                     pygame.draw.polygon(self.screen, C.FINISH_COLOR if (r + c) % 2 else C.WHITE, pts)
 
         # painter's algorithm: วาดของไกล (z มาก) ก่อน ของใกล้ทับทีหลัง
-        # กลุ่มคนอยู่ใกล้กล้องที่สุดเสมอ จึงวาดท้ายสุด
-        for obj in sorted(self.level.objects, key=lambda o: -o.z):
-            obj.draw(self.screen, cam, self.font)
+        # ต้นไม้ข้างถนนเรียงรวมกับของบนถนน  ต้นที่ใกล้กล้องกว่ากลุ่มคนวาดหลังกลุ่มคน (บังกลุ่มคนได้ถูกต้อง)
+        lo = bisect.bisect_left(self.tree_zs, near)
+        hi = bisect.bisect_right(self.tree_zs, far)
+        front_trees = []
+        drawables = [(obj.z, obj) for obj in self.level.objects] + [(t[0], t) for t in self.trees[lo:hi]]
+        for z, item in sorted(drawables, key=lambda d: -d[0]):
+            if isinstance(item, tuple):
+                if z < self.crowd.z:
+                    front_trees.append(item)
+                else:
+                    self.draw_tree(item)
+            else:
+                item.draw(self.screen, cam, self.font)
         # ปะทะศัตรู/บอสอยู่: กลุ่มคนใช้ท่าต่อย (บอสที่ยังวิ่งเข้ามา: ยืนรอ ยังไม่ต่อย)
-        self.crowd.attacking = self.fight is not None and getattr(self.fight, "engaged", True)
-        self.crowd.waiting = self.fight is not None and not getattr(self.fight, "engaged", True)
+        self.crowd.attacking = self.fight is not None and self.fight.engaged
+        self.crowd.waiting = self.fight is not None and not self.fight.engaged
         self.crowd.draw(self.screen, cam, self.font)
-        if self.fight is not None and hasattr(self.fight, "draw_overlay"):
+        for tree in front_trees:                         # เรียงไกล -> ใกล้อยู่แล้ว
+            self.draw_tree(tree)
+        if self.fight is not None:
             self.fight.draw_overlay(self.screen, cam)   # รอยหมัดบอสที่ลงถึงตัวคน ต้องทับกลุ่มคน
         self.effects.draw(self.screen, cam)             # ประกายหมัดวาดทับทุกอย่าง
 
     def draw(self):
-        if self.state == MENU:
+        if self.state in (MENU, SETTINGS):
             unlocked = [self.unlocked(i) for i in range(len(self.level_files))]
+            sound_on = any(c["on"] for c in sound.settings.values())
             ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores,
-                         unlocked, self.unlock_all, self.level_tiers)
+                         unlocked, self.level_tiers, self.menu_button, sound_on)
+            if self.state == SETTINGS:
+                ui.draw_sound_settings(self.screen, self.big_font, self.font, sound.settings, self.pause_focus)
         else:
             self.draw_world()
             sx, sy, scale = self.camera.project(self.crowd.x, self.crowd.z)
@@ -518,7 +687,7 @@ class Game:
                 fade = min(1.0, (TIP_TIME - self.elapsed) / 0.6)
                 ui.draw_tips(self.screen, self.font, TIPS, int(255 * fade))
             if self.state == PAUSED:
-                ui.draw_pause(self.screen, self.big_font, self.font, sound.is_muted())
+                ui.draw_pause(self.screen, self.big_font, self.font, sound.settings, self.pause_focus)
             elif self.state in (WIN, LOSE):
                 ui.draw_end(self.screen, self.big_font, self.font, self.state == WIN, self.crowd.count,
                             *self.result, cause=self.lose_cause,
@@ -533,7 +702,18 @@ class Game:
             self.dt = min(self.clock.tick(C.FPS) / 1000, 0.05)
             self.handle_events()
             self.update()
+            sound.play_music(self.music_theme())   # เพลงเดิม = เล่นต่อ เปลี่ยนหน้าจอ = เปลี่ยนเพลง
             self.draw()
+
+    def music_theme(self):
+        """เพลงของหน้าจอตอนนี้: เมนู -> "menu", วิ่ง/หยุดเกม -> "game",
+        บอสกับกลุ่มคนตีกันแล้ว -> "boss" (ค้างไว้ถึงจบด่าน ไม่สลับกลับตอนบอสแพ้ก่อนขึ้นหน้าชนะ)
+        จบด่าน -> None ค่อยๆ เงียบ ให้ได้ยินเสียงชนะ/แพ้ชัดๆ"""
+        if self.state in (MENU, SETTINGS):
+            return "menu"
+        if self.state in (WIN, LOSE):
+            return None
+        return "boss" if self.boss_music else "game"
 
 
 if __name__ == "__main__":

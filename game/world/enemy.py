@@ -1,15 +1,37 @@
 """กองศัตรู: ปะทะแล้วจำนวนหักลบกันทีละคน   [เจ้าของ: B]"""
 import math
 import pygame
-import config as C
-import sprites
-from crowd import blob_radius
+from game.core import config as C
+from game.core import sprites
+from game.world.crowd import blob_radius
 
 ENEMY_TINT = (255, 120, 110)    # ย้อม sprite คนให้เป็นสีแดง แยกจากฝั่งเรา
+ENEMY_CHIP = (240, 110, 95)     # สีเศษที่กระเด็นจากฝั่งศัตรูตอนปะทะ (ตรงกับสีที่ย้อม sprite)
+
+
+def pull_crowd(crowd, x, dt):
+    """ดึงกลุ่มคนไปหาตำแหน่ง x (ซ้าย-ขวา) แบบนุ่มๆ: ใกล้แล้วช้าลงเอง"""
+    crowd.x += (x - crowd.x) * min(1.0, C.ENEMY_PULL * dt)
 
 
 class EnemyGroup:
+    """กองศัตรูธรรมดา และคลาสแม่ของ Boss
+    main.py คุยกับทั้งสองแบบผ่านชุดเดียวกัน (rush / on_reach / update / draw + ค่าด้านล่าง)
+    บอส override ค่าเหล่านี้ (ชื่อ, สีเศษ, จังหวะโจมตี, จุดปะทะ, รอยหมัดทับกลุ่มคน)"""
     can_rush = True               # Boss ปิดไว้ (บอสมีวิธีเข้าหาของตัวเอง)
+    name = "the enemy army"       # main.py: แพ้เพราะอะไร
+    chip_color = ENEMY_CHIP       # main.py: สีเศษที่กระเด็นจากฝั่งนี้
+    impact = False                # บอส: True เฉพาะเฟรมที่ท่าโจมตีลงถึงตัว (main.py สั่นกล้อง + เสียง)
+    impact_strength = 1.0         # แรงของจังหวะนั้น (>= 1 = หนัก)
+    contact_z = None              # บอส: จุดที่ปะทะ (ประกายหมัดเกิดตรงนั้น)  None = ขอบหน้ากองศัตรู
+
+    @property
+    def engaged(self):
+        """ตีกันจริงแล้วหรือยัง  กองศัตรูธรรมดา: ใช่ทันทีที่ปะทะ (บอสอาจยังเดินเข้ามาอยู่)"""
+        return True
+
+    def draw_overlay(self, screen, camera):
+        """วาดทับกลุ่มคนหลังวาดกลุ่มคน (กองธรรมดาไม่มี บอสใช้วาดหมัดรัว/ดาบแทง)"""
 
     def __init__(self, z, count, x=0):
         self.x, self.z = x, z
@@ -25,7 +47,8 @@ class EnemyGroup:
 
     def rush(self, crowd, dt):
         """main.py เรียกทุกเฟรมตอนกองนี้เป็น object ถัดไปที่กลุ่มคนจะถึง
-        พอเข้าใกล้ C.ENEMY_RUSH_DIST: วิ่งพุ่งเข้าหา (z ลดลง) และตามซ้าย-ขวาของกลุ่มคน ให้เห็นว่าหลบไม่ได้
+        พอเข้าใกล้ C.ENEMY_RUSH_DIST: วิ่งพุ่งเข้าหา (z ลดลง) และกลุ่มคนถูกดึงเข้าหาศัตรู (ซ้าย-ขวา) หลบไม่ได้
+        (main.py ล็อกปุ่มเลี้ยวตั้งแต่ตอนนี้จนปะทะจบ ดู Game.crowd_locked)
 
         ทำไมเลื่อน z จริง (ไม่ใช่แค่วาด): จุดเริ่มปะทะ = crowd.z >= self.z  ถ้าเลื่อนแค่ภาพ
         ศัตรูจะทับกลุ่มคนก่อนเริ่มปะทะ   จังหวะสิ่งกีดขวางข้างหลังไม่เพี้ยน เพราะสิ่งกีดขวาง
@@ -36,7 +59,7 @@ class EnemyGroup:
             return
         self.rushing = True
         self.z = max(crowd.z, self.z - C.ENEMY_RUSH_SPEED * dt)
-        self.x += (crowd.x - self.x) * min(1.0, C.ENEMY_RUSH_STEER * dt)
+        pull_crowd(crowd, self.x, dt)
 
     def on_reach(self, crowd):
         """เริ่มปะทะ: หักทีละนิดใน update() แทนหักทีเดียว ดูสนุกกว่า เหมือนในวิดีโอ"""

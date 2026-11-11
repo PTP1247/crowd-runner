@@ -4,9 +4,10 @@
 """
 import json
 import math
-from pathlib import Path
 
-SCORE_FILE = Path(__file__).parent / "highscores.json"   # อยู่ใน .gitignore (คะแนนของแต่ละเครื่อง)
+from game.core import config as C
+
+SCORE_FILE = C.SCORE_FILE   # อยู่ใน .gitignore (คะแนนของแต่ละเครื่อง)
 
 # สัดส่วนของ "จำนวนคนมากที่สุดที่เป็นไปได้" (level.best_count) ที่ต้องได้เพื่อรับดาว 2 และ 3
 TWO_STAR = 0.25

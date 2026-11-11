@@ -6,7 +6,7 @@
 """
 import random
 
-import config as C
+from game.core import config as C
 
 
 class Camera:

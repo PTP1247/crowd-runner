@@ -3,11 +3,12 @@
 ใช้ร่วมกันได้หลายไฟล์ (ตอนนี้ใช้กับศัตรู) และเก็บผลไว้ใช้ซ้ำ เพราะโหลดไฟล์และย่อภาพทุกเฟรมช้า
 ต้องเรียกหลังเปิดหน้าต่างแล้ว (convert_alpha ต้องมี display) จึงโหลดตอนวาดครั้งแรก ไม่ใช่ตอน import
 """
-from pathlib import Path
 
 import pygame
 
-SHEET_DIR = Path(__file__).resolve().parent / "assets" / "16x32"
+from game.core import config as C
+
+SHEET_DIR = C.ASSET_DIR / "16x32"
 ROWS = 5                    # ทุกชีตมี 5 แถว = 5 ทิศ  แถว 0 = หันหน้าเข้ากล้อง
 FRONT = 0
 

@@ -4,17 +4,15 @@
 """
 import json
 import math
-import random
-from pathlib import Path
 
-import config as C
-from gate import GatePair
-from obstacle import Obstacle
-from enemy import EnemyGroup
-from crowd import edge_gap
-from boss import Boss         # Boss เป็น EnemyGroup: best_count / difficulty นับรวมให้เอง
+from game.core import config as C
+from game.world.gate import GatePair
+from game.world.obstacle import Obstacle
+from game.world.enemy import EnemyGroup
+from game.world.crowd import edge_gap
+from game.world.boss import Boss         # Boss เป็น EnemyGroup: best_count / difficulty นับรวมให้เอง
 
-LEVEL_DIR = Path(__file__).parent / "levels"
+LEVEL_DIR = C.LEVEL_DIR
 
 
 class Level:
@@ -33,7 +31,7 @@ def build_object(data):
     if kind == "gate_pair":
         return GatePair(data["z"], tuple(data["left"]), tuple(data["right"]))
     if kind == "obstacle":
-        return Obstacle(data["x"], data["z"], data["width"], data["damage"])
+        return Obstacle(data["x"], data["z"], data["width"])
     if kind == "enemy":
         return EnemyGroup(data["z"], data["count"], data.get("x", 0))
     raise ValueError(f"unknown object type: {kind!r}")

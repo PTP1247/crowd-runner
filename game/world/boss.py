@@ -6,13 +6,14 @@
 เพิ่มบอสในด่าน: ใส่ใน levels/levelN.json  ->  "boss": {"kind": 1, "count": 80}
 เพิ่มบอสแบบใหม่: เพิ่ม dict ใน STYLES (kind ถัดไป)
 """
+import math
 import random
 
 import pygame
 
-import config as C
-import sprites
-from enemy import EnemyGroup
+from game.core import config as C
+from game.core import sprites
+from game.world.enemy import EnemyGroup
 
 # ---------- สีบนชีต 16x32 ของผู้เล่น (ใช้หาตา/ปาก/แก้มเพื่อแต่งหน้า) ----------
 OUTLINE = (47, 37, 34)
@@ -27,13 +28,13 @@ SCAR = (240, 172, 178)       # แผลเป็นสีชมพูซีด 
 
 # แต่ละ kind = บอสหนึ่งแบบ
 #   idle / attack: (ชื่อชีต, แถว)  แถว 0 = หันตรงเข้าหากล้อง, แถว 1 = หันเกือบตรง
-#   attack_seq: ลำดับเฟรมในชีตที่เล่นเป็นท่าโจมตี (ไม่ใส่ = เล่นเรียงทุกเฟรม 0..attack_frames-1)
-#   impact: ตำแหน่งใน attack_seq ที่ลงพื้น (สั่นกล้อง + คลื่นกระแทก)
+#   impact: เฟรมท่าโจมตีที่ลงถึงตัวคน (สั่นกล้อง + คลื่นกระแทก) เลขเดียว หรือ list ถ้ามีหลายจังหวะ
 #   lunge: ตำแหน่ง -> พุ่งเข้าหากลุ่มคนกี่ unit    lift: ตำแหน่ง -> ลอยจากพื้นกี่พิกเซลของ sprite (กระโดด)
 #   face: "angry" (คิ้ว V ตาแดง ปากบึ้ง) / "blank" (ตาปรือ ปากเส้นตรง ไร้อารมณ์)
 #   scar: "screen_left" / "screen_right" = แผลเป็นที่ตาข้างซ้าย/ขวาของจอ (ตาขวา/ซ้ายของตัวบอสเอง)
 SAMURAI_CUTS = 12           # บอสซามูไร: ฟันกี่ครั้งต่อรอบ (สุ่มทิศ)
-SAMURAI_STEPS = 4           # ฟันละกี่ภาพ (ดาบหมุนไปตามวงทีละช่วง ยิ่งมากยิ่งลื่น)
+SAMURAI_STEPS = 5           # ฟันละกี่ภาพ: ง้าง 2, ฟันครึ่งทาง, ฟันสุด (โดน), ส่งดาบตาม
+SAMURAI_HIT = 3             # ภาพที่ดาบฟันสุด = จังหวะที่โดน
 SAMURAI_FRAMES = SAMURAI_CUTS * SAMURAI_STEPS
 
 STYLES = {
@@ -166,12 +167,33 @@ STYLES = {
         "run_fps": 8, "stand": 200, "run_speed": 260,       # นั่งใกล้: ลุกแล้วเดินแค่ 1-2 ก้าวก็ถึง
         "attack": ("Idle", 0),
         "build": {"kind": "samurai", "poses": [f"cut{k}" for k in range(SAMURAI_FRAMES)]},
-        "attack_fps": 24, "attack_frames": SAMURAI_FRAMES,  # 24 ภาพต่อวินาที = ฟัน 6 ครั้งต่อวินาที
-        "impact": list(range(1, SAMURAI_FRAMES, SAMURAI_STEPS)),    # โดนตอนดาบกวาดผ่านกลางตัว
-        "impact_strength": {k: 0.4 for k in range(1, SAMURAI_FRAMES, SAMURAI_STEPS)},
+        "attack_fps": 20, "attack_frames": SAMURAI_FRAMES,  # 20 ภาพต่อวินาที = ฟัน 4 ครั้งต่อวินาที
+        "impact": list(range(SAMURAI_HIT, SAMURAI_FRAMES, SAMURAI_STEPS)),   # โดนตอนฟันสุด
+        "impact_strength": {k: 0.5 for k in range(SAMURAI_HIT, SAMURAI_FRAMES, SAMURAI_STEPS)},
         "lunge": {k: 12 for k in range(SAMURAI_FRAMES)},
         "tint": (214, 124, 114),     # ไม่ได้ใช้ย้อม ใช้เป็นสีเศษผ้า
         "label": (150, 70, 66),
+    },
+    8: {
+        "name": "the Rotting Giant",
+        # ซอมบี้ (แบบภาพตัวอย่าง): หัวกะโหลกใหญ่ เบ้าตาลึกตาเหลือง เสื้อขาด กางเกงขาด แขนหนึ่งยื่นมาข้างหน้า
+        # ยืนโยกตัวรอ แขนห้อย -> เดินกะเผลกเข้าหา  โจมตี: ข่วนมือขวา -> ข่วนมือซ้าย  ทิ้งรอยเล็บ 3 เส้นสีแดง
+        "colored": True,
+        "idle": ("Idle", 0), "idle_fps": 3,
+        "idle_build": {"kind": "zombie", "poses": ["sway0", "sway1", "sway2", "sway3"]},
+        # คนข้ามเส้นหมด: เดินกะเผลกแบบศพเข้าหา (ช้าๆ ตัวทรุดเอียงทุกก้าว)
+        "run_build": {"kind": "zombie", "poses": ["limp0", "limp1", "limp2", "limp3"]},
+        "run_fps": 7, "run_speed": 220,
+        "attack": ("Idle", 0),
+        "build": {"kind": "zombie",
+                  "poses": ["raise_r", "raise_r", "swipe_r", "follow_r", "raise_l", "raise_l", "swipe_l",
+                            "follow_l", "sway0"]},
+        "attack_fps": 11, "attack_frames": 9,
+        "impact": [2, 6],
+        "impact_strength": {2: 0.6, 6: 0.6},
+        "lunge": {1: 4, 2: 18, 3: 14, 5: 4, 6: 18, 7: 14, 8: 2},
+        "tint": (112, 150, 96),      # ไม่ได้ใช้ย้อม ใช้เป็นสีเศษที่กระเด็น
+        "label": (70, 96, 58),
     },
 }
 PUNCH_WIND = 0.45               # หมัดรัว: ช่วงแรกของแต่ละหมัด (0..1) = ง้าง ดึงไหล่กลับ
@@ -188,7 +210,7 @@ FISTS = {}        # ชื่อบอส -> จุดกำปั้นที�
 def find_eyes(frame):
     """หาตาจากพิกเซล: ตา = จุดสีเส้นขอบที่มีผิวอยู่ซ้าย-ขวา (ใช้ได้ทุกเฟรมแม้หัวขยับ)
     คืน ((x, บน, ล่าง) ตาซ้ายจอ, (x, บน, ล่าง) ตาขวาจอ) หรือ None ถ้าหลับตา/เบลอ"""
-    w, h = frame.get_size()
+    w = frame.get_width()
     rgb = lambda x, y: tuple(frame.get_at((x, y)))[:3] if frame.get_at((x, y)).a else None
     top = head_top(frame)
     # ตาอยู่ราว 5-8 พิกเซลใต้ขอบหัว (จำกัดช่วงไว้ ไม่งั้นเส้นมือที่ยกมาหน้าอกจะถูกนับเป็นตา)
@@ -754,7 +776,6 @@ KN_BLADE = (214, 222, 232)      # ใบดาบ
 KN_BLADE_SH = (150, 164, 180)
 KN_GOLD = (222, 168, 56)        # โกร่ง + ปุ่มท้ายด้าม
 KN_LEATHER = (104, 66, 46)      # เข็มขัด + ฝักดาบ
-KN_LEATHER_SH = (74, 46, 34)
 KN_TRAIL = ((168, 190, 214), (244, 248, 255))
 KNIGHT_SHOULDER = {"R": (9, 18), "L": (23, 18)}
 KNIGHT_HILT_SHEATHED = (21, 23)                # ด้ามดาบที่เหน็บอยู่สะโพกซ้ายของอัศวิน (ขวาจอ)
@@ -924,7 +945,6 @@ SA_TSUKA = (30, 26, 34)         # ด้ามพันเชือก
 SA_TSUKA_HI = (210, 200, 180)   # ลายข้าวหลามตัดบนด้าม
 SA_TSUBA = (196, 152, 60)       # กระบังดาบ
 SA_BLADE = (226, 232, 240)
-SA_BLADE_SH = (156, 168, 184)
 SA_SHINE = ((255, 255, 255), (255, 244, 180))   # ประกายบนใบดาบ: กลาง, แฉก
 SA_TRAIL = ((176, 196, 222), (248, 250, 255))
 SAMURAI_SHOULDER = {"R": (11, 17), "L": (21, 17)}
@@ -952,45 +972,66 @@ for _i, (_a, _b) in enumerate(_LEG_CYCLE):      # เดินเกี๊ยะ
 
 
 def _samurai_cuts():
-    """ท่าฟันรัว: สุ่มฟันแนวทแยง / แนวตั้ง / แนวนอน (8 ทิศ ทีละ 45 องศา) ต่อกันลื่นๆ
-    ฟันแต่ละครั้ง: มือเลื่อนผ่านกลางตัวจากฝั่งหนึ่งไปอีกฝั่งตามแนวฟัน ดาบหมุนจากง้างไปข้างหลังจนชี้ไปทางที่ฟัน
-      รอยฟัน = เส้นตรงตามแนวฟัน (เห็นชัดว่าทแยง/ตั้ง/นอน) + เส้นโค้งตามปลายดาบ
-    ต่อกันลื่น: ฟันถัดไปเริ่มจากฝั่งที่ฟันก่อนจบ (กลับทาง ±45 องศา จึงเปลี่ยนแนวได้แบบสุ่ม)
-    seed คงที่ ได้ท่าเดิมทุกครั้ง และฟันสุดท้ายต่อเข้าฟันแรกพอดี (วนลูปไม่สะดุด)"""
+    """ท่าฟันรัว: สุ่มฟันแนวทแยง / แนวตั้ง / แนวนอน (8 ทิศ ทีละ 45 องศา)
+    ฟันแต่ละครั้งเป็นจังหวะแบบฟันจริง (SAMURAI_STEPS ภาพ):
+      ง้าง (ค้าง 2 ภาพ ตัวบิดไปฝั่งเริ่ม) -> ฟันผ่านครึ่งทาง -> ฟันสุด (โดน) -> ส่งดาบตาม (รอยค่อยๆ จาง)
+    ปลายดาบวิ่งเป็นวงรีแบนข้ามตัว (ยาวสุดที่ปลายสองข้าง สั้นลงตรงกลาง = ดาบพุ่งเข้าหากล้อง)
+    รอยฟันเป็นเสี้ยวพระจันทร์ทึบ (หนากลาง เรียวสองปลาย) แบบเอฟเฟกต์ฟันดาบในเกม
+    ต่อกันลื่น: ฟันถัดไปเริ่มจากฝั่งที่ฟันก่อนจบ (กลับทาง ±45 องศา) seed คงที่ วนลูปไม่สะดุด"""
     V = pygame.math.Vector2
-    center = V(16, 21)
+    center = V(16, 20)
     rng = random.Random(77)
-    while True:                                 # สุ่มจนได้ชุดที่ฟันสุดท้ายต่อเข้าฟันแรกได้
+    while True:                                 # สุ่มจนได้ชุดที่ฟันสุดท้ายต่อเข้าฟันแรกได้ และมีครบทุกแนว
         angles = [rng.randrange(8) * 45]
         for _ in range(SAMURAI_CUTS - 1):
             angles.append((angles[-1] + 180 + rng.choice((-45, 0, 45))) % 360)
-        back = (angles[0] + 180 - angles[-1]) % 360          # ฟันแรกต้องเริ่มจากฝั่งที่ฟันสุดท้ายจบ
-        kinds = {a % 180 for a in angles}
-        if back in (0, 45, 315) and len(kinds) == 4:         # ครบทั้งนอน ตั้ง ทแยงสองแบบ
+        back = (angles[0] + 180 - angles[-1]) % 360
+        if back in (0, 45, 315) and len({a % 180 for a in angles}) == 4:
             break
-    ease = lambda t: t * t * (3 - 2 * t)
-
-    def cutline(d, upto):
-        return [tuple(center - d * 15), tuple(center + d * (-15 + 30 * upto))]
-
+    R, FLAT, REACH = 16, 0.4, 0.3               # รัศมีวงฟัน, ความแบนของวง, มืออยู่กี่ส่วนของทางไปปลายดาบ
     n = 0
-    prev_line = cutline(V(1, 0).rotate(angles[-1]), 1)
     for k, a in enumerate(angles):
-        d = V(1, 0).rotate(a)
-        spin = rng.choice((-1, 1))              # ดาบหมุนผ่านด้านไหน (สุ่ม)
-        tip = lambda e: center + d * (-6 + 12 * e) + V(1, 0).rotate(a + 180 * (1 - e) * spin) * 12
-        for step in range(1, SAMURAI_STEPS + 1):
-            e = ease(step / SAMURAI_STEPS)
-            hand = center + d * (-6 + 12 * e)
-            blade = V(1, 0).rotate(a + 180 * (1 - e) * spin)
-            cut = {"hands": "both", "sword": ((round(hand.x), round(hand.y)), (blade.x, blade.y), 12),
-                   "trail": [tuple(tip(e * j / 6)) for j in range(7)],
-                   "cutline": cutline(d, e), "old_trail": prev_line, "shift": round(d.x), "spread": 1}
-            if step == SAMURAI_STEPS and k % 3 == 0:
-                cut["shine"] = [tuple(center + d * 14)]
-            SAMURAI_POSES[f"cut{n}"] = cut
+        d = V(1, 0).rotate(a)                   # ทิศที่ฟันไป
+        side = V(-d.y, d.x)
+        if abs(side.y) > 0.3:                   # วงโค้งป่องลงล่าง (ดาบกวาดผ่านด้านหน้า) ถ้าเลือกได้
+            side = side if side.y > 0 else -side
+        elif rng.random() < 0.5:                # ฟันแนวตั้ง: ป่องซ้ายหรือขวาแบบสุ่ม
+            side = -side
+        tip = lambda u: center - d * R * math.cos(math.pi * u) + side * R * FLAT * math.sin(math.pi * u)
+
+        def smear(u0, u1, thick):
+            """รอยฟันเสี้ยวพระจันทร์จากช่วง u0..u1 ของวง: ขอบนอก = ทางปลายดาบ ขอบใน = หดเข้าหาตัวตามความหนา"""
+            us = [u0 + (u1 - u0) * j / 10 for j in range(11)]
+            outer = [tip(u) for u in us]
+            inner = []
+            for j, u in enumerate(us):
+                w = thick * math.sin(math.pi * j / 10)         # หนาตรงกลาง เรียวสองปลาย
+                inner.append(center + (tip(u) - center) * (1 - w))
+            return [tuple(p) for p in outer], [tuple(p) for p in reversed(inner)]
+
+        def frame(u, shift, smear_spec=None, shine=False):
+            t = tip(u)
+            hand = center + (t - center) * REACH
+            blade = t - hand
+            pose = {"hands": "both", "sword": ((round(hand.x), round(hand.y)), (blade.x, blade.y),
+                                               max(6, round(blade.length()))),
+                    "shift": shift, "spread": 2}
+            if smear_spec:
+                pose["smear"] = smear_spec
+            if shine:
+                pose["shine"] = [tuple(t)]
+            return pose
+
+        coil, follow = -round(d.x), round(d.x)        # ง้าง: ตัวบิดไปฝั่งเริ่ม  ฟันสุด: ตัวตามไปฝั่งจบ
+        steps = [frame(0, coil, shine=k % 3 == 0),                     # ง้าง (ค้าง 2 ภาพ)
+                 frame(0, coil),
+                 frame(0.5, 0, (smear(0, 0.5, 0.55), "full")),         # ฟันผ่านครึ่งทาง
+                 frame(1, follow, (smear(0.05, 1, 0.6), "full")),      # ฟันสุด: รอยเต็มวง (จังหวะโดน)
+                 frame(1, follow, (smear(0.45, 1, 0.3), "fade"))]      # ส่งดาบตาม: รอยจางเหลือปลาย
+        assert len(steps) == SAMURAI_STEPS
+        for pose in steps:
+            SAMURAI_POSES[f"cut{n}"] = pose
             n += 1
-        prev_line = cutline(d, 1)
 
 
 _samurai_cuts()
@@ -1106,6 +1147,18 @@ def samurai_pose(pose):
         out_dir = -1 if side == "R" else 1
         elbow = (sh + hd) / 2 + V(out_dir * 2, 1)
         arms[side] = (sh, elbow, hd)
+    if pose.get("smear"):                       # รอยฟันเสี้ยวพระจันทร์ (ใต้แขนกับดาบ)
+        (outer, inner), kind = pose["smear"]
+        outer = [V(up(p)) for p in outer]
+        inner = [V(up(p)) for p in inner]
+        if kind == "full":
+            pygame.draw.polygon(out, SA_TRAIL[0], outer + inner)
+            core = [o.lerp(i, 0.45) for o, i in zip(outer, reversed(inner))]   # แกนขาวชิดขอบนอก
+            pygame.draw.polygon(out, SA_TRAIL[1], outer + list(reversed(core)))
+            pygame.draw.lines(out, SA_TRAIL[1], False, outer, 2)
+        else:                                   # จาง: เหลือเส้นขอบนอกบางๆ
+            pygame.draw.lines(out, SA_TRAIL[0], False, outer, 2)
+            pygame.draw.lines(out, SA_TRAIL[1], False, outer[len(outer) // 2:], 1)
     for side, (sh, elbow, hd) in arms.items():
         drape = elbow + V(0, 2)                 # แขนเสื้อห้อยใต้ศอกนิดหน่อย
         pygame.draw.circle(out, SA_OUT, (round(drape.x), round(drape.y)), 2)
@@ -1143,6 +1196,552 @@ def samurai_pose(pose):
     return out, []
 
 
+# ---------- บอสซอมบี้ (kind 8): วาดสีจริง เฟรม 48x40 ----------
+Z_OUT = (34, 30, 28)
+Z_SKIN = (112, 150, 96)         # ผิวเขียวซีด
+Z_SKIN_SH = (82, 112, 72)
+Z_SKIN_HI = (142, 178, 120)
+Z_SOCKET = (54, 66, 46)         # เบ้าตาลึก
+Z_EYE = (236, 230, 116)         # ตาเหลืองเรืองแสง
+Z_TEETH = (224, 216, 172)
+Z_SHIRT = (126, 124, 76)        # เสื้อขาดสีกากีหม่น
+Z_SHIRT_SH = (98, 96, 58)
+Z_PANTS = (74, 88, 52)
+Z_PANTS_SH = (56, 66, 40)
+Z_CLAW = (236, 232, 208)        # เล็บ
+Z_SCRATCH = ((196, 40, 44), (255, 238, 232))    # รอยข่วน: ขอบแดง, แกนขาว
+ZOMBIE_SHOULDER = {"R": (10, 18), "L": (22, 18)}
+
+# ท่า: arms = ข้าง -> (ศอก, มือ)  head = หัวเอียง/ยื่น (dx, dy)  drop = ตัวท่อนบนทรุดลง
+#   legs = ข้าง -> (ก้าวออกข้าง, ยกเท้า, ลากเท้า)  scratch = [(จุดเริ่ม, จุดจบ, แบบ "full"/"fade")]
+def _z_hang(swing_r=0, swing_l=0):
+    """แขนห้อยปวกเปียกทั้งสองข้าง (ศอกงอนิดๆ มือห้อยต่ำ) swing = แกว่งไปมากี่พิกเซล"""
+    return {"R": ((9 + swing_r, 23), (9 + swing_r * 2, 28)), "L": ((23 + swing_l, 23), (23 + swing_l * 2, 28))}
+
+
+ZOMBIE_POSES = {
+    # ยืนรอ: โยกตัวช้าๆ หัวเอียงห้อย แขนห้อยทั้งสองข้าง
+    "sway0": {"arms": _z_hang(), "head": (0, 1), "legs": {"R": (0, 0, 0), "L": (0, 0, 0)}},
+    "sway1": {"arms": _z_hang(-1, -1), "head": (-1, 1), "shift": -1, "legs": {"R": (0, 0, 0), "L": (0, 0, 0)}},
+    "sway2": {"arms": _z_hang(), "head": (0, 2), "drop": 1, "legs": {"R": (0, 0, 0), "L": (0, 0, 0)}},
+    "sway3": {"arms": _z_hang(1, 1), "head": (1, 1), "shift": 1, "legs": {"R": (0, 0, 0), "L": (0, 0, 0)}},
+    # เดินแบบศพ: กะเผลก ขาซ้ายจอก้าวได้ ขาขวาจอแข็งลากตาม ตัวทรุดเอียงทุกครั้งที่ลงน้ำหนัก หัวโยกห้อย แขนแกว่งปวกเปียก
+    "limp0": {"arms": _z_hang(1, 0), "head": (-1, 1), "shift": -1, "legs": {"R": (-1, 2, 0), "L": (0, 0, 1)}},
+    "limp1": {"arms": _z_hang(0, -1), "head": (-2, 2), "shift": -1, "drop": 2,
+              "legs": {"R": (-1, 0, 0), "L": (0, 0, 1)}},                  # ลงน้ำหนักขาดี: ทรุด หัวพับ
+    "limp2": {"arms": _z_hang(-1, 1), "head": (1, 1), "shift": 1, "legs": {"R": (0, 0, 0), "L": (1, 1, 1)}},
+    "limp3": {"arms": _z_hang(0, 1), "head": (2, 2), "shift": 1, "drop": 1,
+              "legs": {"R": (0, 0, 0), "L": (1, 0, 1)}},                   # ลากขาแข็งมาถึง: เซไปอีกข้าง
+    # ข่วนมือขวา (ซ้ายจอ): ชูกรงเล็บขึ้นสูง -> ตะปบเฉียงลงขวา (รอยเล็บ 3 เส้น) -> มือค้างล่าง
+    "raise_r": {"arms": {"R": ((5, 14), (6, 8)), "L": ((23, 23), (24, 28))}, "head": (-1, 0), "shift": -1,
+                "legs": {"R": (-1, 0, 0), "L": (0, 0, 0)}, "claws_up": "R"},
+    "swipe_r": {"arms": {"R": ((13, 22), (21, 27)), "L": ((23, 23), (25, 27))}, "head": (1, 2), "shift": 1,
+                "drop": 1, "legs": {"R": (0, 0, 0), "L": (1, 0, 0)}, "scratch": [((7, 12), (23, 30), "full")]},
+    "follow_r": {"arms": {"R": ((14, 24), (22, 29)), "L": ((23, 23), (25, 28))}, "head": (1, 2), "shift": 1,
+                 "drop": 1, "legs": {"R": (0, 0, 0), "L": (1, 0, 0)}, "scratch": [((7, 12), (23, 30), "fade")]},
+    # ข่วนมือซ้าย (ขวาจอ): กลับด้าน
+    "raise_l": {"arms": {"R": ((9, 23), (8, 28)), "L": ((27, 14), (26, 8))}, "head": (1, 0), "shift": 1,
+                "legs": {"R": (0, 0, 0), "L": (1, 0, 0)}, "claws_up": "L"},
+    "swipe_l": {"arms": {"R": ((9, 23), (7, 27)), "L": ((19, 22), (11, 27))}, "head": (-1, 2), "shift": -1,
+                "drop": 1, "legs": {"R": (-1, 0, 0), "L": (0, 0, 0)}, "scratch": [((25, 12), (9, 30), "full")]},
+    "follow_l": {"arms": {"R": ((9, 23), (7, 28)), "L": ((18, 24), (10, 29))}, "head": (-1, 2), "shift": -1,
+                 "drop": 1, "legs": {"R": (-1, 0, 0), "L": (0, 0, 0)}, "scratch": [((25, 12), (9, 30), "fade")]},
+}
+
+
+def draw_scratch(out, a, b, kind):
+    """รอยข่วนกรงเล็บ 3 เส้นขนานกัน (เส้นกลางยาวสุด)  fade = เหลือเส้นบางๆ"""
+    V = pygame.math.Vector2
+    a, b = V(a), V(b)
+    d = (b - a).normalize()
+    n = V(-d.y, d.x)
+    for off, trim in ((-3, 2), (0, 0), (3, 2)):
+        p, q = a + n * off + d * trim, b + n * off - d * trim
+        if kind == "full":
+            pygame.draw.line(out, Z_SCRATCH[0], p, q, 2)
+            pygame.draw.line(out, Z_SCRATCH[1], p.lerp(q, 0.3), p.lerp(q, 0.85), 1)   # แกนขาวช่วงกลาง-ปลาย
+        else:
+            pygame.draw.line(out, Z_SCRATCH[0], p.lerp(q, 0.4), q, 1)
+
+
+def zombie_pose(pose):
+    W, H = KNIGHT_SIZE
+    ox, oy = KNIGHT_ORIGIN
+    dx, dy = pose.get("shift", 0), pose.get("drop", 0)
+    out = pygame.Surface((W, H), pygame.SRCALPHA)
+    up = lambda p: (p[0] + ox + dx, p[1] + oy + dy)
+    at = lambda p: (p[0] + ox, p[1] + oy)
+    V = pygame.math.Vector2
+
+    def blob(points, fill):
+        pygame.draw.polygon(out, fill, points)
+        pygame.draw.polygon(out, Z_OUT, points, 1)
+
+    # ---- ขา: กางเกงขาดๆ + เท้าเปล่าสีเขียว  ก้าวออกข้าง / ยกเท้า (ก้าว) / ลากเท้า (ปลายเท้าจิกพื้น) ----
+    for side, left in (("R", True), ("L", False)):
+        step, lift, drag = pose.get("legs", {}).get(side, (0, 0, 0))
+        x0 = (11 if left else 17) + step
+        foot = 30 - lift
+        blob([at(p) for p in [(11 if left else 17, 24), ((11 if left else 17) + 4, 24), (x0 + 4, foot), (x0, foot)]],
+             Z_PANTS)
+        pygame.draw.line(out, Z_PANTS_SH, at((x0 + 1, 26)), at((x0 + 1, foot - 1)))
+        out.set_at(at((x0 + 3, foot - 1)), Z_SKIN)           # ขากางเกงขาด เห็นแข้ง
+        if drag:                                             # เท้าลาก: เท้าบิดเข้า เห็นแค่ปลายเท้าแตะพื้น
+            fx = x0 + (2 if left else 0)
+            blob([at((fx, foot)), at((fx + 2, foot)), at((fx + 2, foot + 1)), at((fx, foot + 1))], Z_SKIN_SH)
+        else:
+            fx = x0 - (1 if left else 0)
+            blob([at((fx, foot)), at((fx + 5, foot)), at((fx + 5, foot + 1)), at((fx, foot + 1))], Z_SKIN_SH)
+    # ---- ลำตัว: เสื้อขาดเป็นรู เห็นผิว ชายเสื้อหยัก ----
+    blob([up(p) for p in [(12, 16), (20, 16), (23, 18), (22, 24), (10, 24), (9, 18)]], Z_SHIRT)
+    for p in ((12, 19), (13, 20), (13, 21), (19, 21), (18, 22), (16, 18)):
+        out.set_at(up(p), Z_SKIN)                            # รูขาด
+    for p in ((12, 20), (19, 22), (15, 23), (20, 19)):
+        out.set_at(up(p), Z_SHIRT_SH)
+    for x in range(11, 22, 2):                               # ชายเสื้อหยัก
+        out.set_at(up((x, 24)), Z_PANTS_SH)
+    # ---- หัว: กะโหลกใหญ่ล้าน เบ้าตาลึก ตาเหลือง จมูกโหว่ ปากฟันเก ----
+    hx, hy = pose.get("head", (0, 0))
+    hd = lambda p: up((p[0] + hx, p[1] + hy))
+    pygame.draw.line(out, Z_SKIN_SH, hd((15, 15)), up((15, 17)), 3)          # คอ
+    blob([hd(p) for p in [(12, 4), (20, 4), (22, 6), (23, 10), (22, 13), (20, 15), (12, 15), (10, 13),
+                          (9, 10), (10, 6)]], Z_SKIN)
+    for p in ((20, 6), (21, 8), (21, 10), (21, 12), (19, 14), (18, 14)):
+        out.set_at(hd(p), Z_SKIN_SH)                         # เงาด้านขวาหัว
+    for p in ((13, 5), (14, 5), (12, 6)):
+        out.set_at(hd(p), Z_SKIN_HI)                         # แสงบนกะโหลก
+    for x0 in (12, 17):                                      # เบ้าตา + ตาเรืองแสง
+        pygame.draw.rect(out, Z_SOCKET, (*hd((x0, 8)), 3, 3))
+        out.set_at(hd((x0 + 1, 9)), Z_EYE)
+        out.set_at(hd((x0 + (2 if x0 == 12 else 0), 9)), Z_EYE)
+    pygame.draw.line(out, Z_OUT, hd((11, 7)), hd((14, 7)))    # คิ้วโหนก
+    pygame.draw.line(out, Z_OUT, hd((17, 7)), hd((20, 7)))
+    out.set_at(hd((15, 11)), Z_OUT)                          # จมูกโหว่
+    out.set_at(hd((16, 11)), Z_OUT)
+    pygame.draw.line(out, Z_OUT, hd((13, 13)), hd((19, 13)))  # ปาก
+    for p in ((14, 13), (17, 13), (15, 14)):
+        out.set_at(hd(p), Z_TEETH)
+    # ---- รอยข่วน (ทับตัว ใต้แขน) ----
+    for a, b, kind in pose.get("scratch", ()):
+        draw_scratch(out, up(a), up(b), kind)
+    # ---- แขน: เขียวผอม แขนเสื้อสั้นขาดที่ไหล่ + กรงเล็บ ----
+    for side in ("R", "L"):
+        elbow, hand = pose["arms"][side]
+        sh, el, hn = V(up(ZOMBIE_SHOULDER[side])), V(up(elbow)), V(up(hand))
+        limb(out, [sh, el, hn], 2, Z_OUT)
+        limb(out, [sh, el, hn], 1, Z_SKIN)
+        pygame.draw.circle(out, Z_OUT, (round(sh.x), round(sh.y)), 3)       # แขนเสื้อ
+        pygame.draw.circle(out, Z_SHIRT, (round(sh.x), round(sh.y)), 2)
+        d = (hn - el).normalize()
+        n = V(-d.y, d.x)
+        pygame.draw.circle(out, Z_OUT, (round(hn.x), round(hn.y)), 2)
+        pygame.draw.circle(out, Z_SKIN, (round(hn.x), round(hn.y)), 1)
+        spread = 1.3 if pose.get("claws_up") in (side, "both") else 0.8      # ชูขึ้น: กางนิ้วกว้าง
+        for k in (-1, 0, 1):                                 # นิ้ว + เล็บ 3 นิ้ว
+            tip = hn + d * 3 + n * k * spread
+            out.set_at((round(tip.x), round(tip.y)), Z_CLAW)
+            mid = hn + d * 2 + n * k * spread * 0.7
+            out.set_at((round(mid.x), round(mid.y)), Z_SKIN_SH)
+    return out, []
+
+
+# ---------- บอสสุดท้าย (kind 9): อัศวินเกราะดำถือดาบยักษ์ วาดสีจริง เฟรม 96x64 ----------
+# ตัวใหญ่กว่าบอสอื่น (สูง 36 พิกเซล) เฟรมกว้างเผื่อดาบที่ยาวกว่าตัว + ที่ว่างเหนือหัวตอนชูดาบ
+DK_SIZE = (96, 64)
+DK_ORIGIN = (28, 28)            # มุมซ้ายบนของกล่องตัว 40x36 บนเฟรม (เท้าอยู่ขอบล่างเฟรมพอดี)
+DK_OUT = (14, 12, 22)           # เส้นขอบ
+DK_ARMOR = (44, 48, 68)         # เกราะดำอมน้ำเงิน
+DK_MID = (72, 82, 110)
+DK_HI = (124, 142, 172)         # ขอบเกราะที่โดนแสง
+DK_SHINE = (190, 206, 226)
+DK_CAPE = (44, 32, 58)          # ผ้าคลุมม่วงดำ ขาดรุ่ย
+DK_CAPE_SH = (26, 18, 36)
+DK_CAPE_HI = (70, 52, 88)
+DK_EYE = (240, 48, 36)          # ตาแดงเรืองแสงในหมวกหมาป่า
+DK_EYE_GLOW = (255, 150, 96)
+DK_FANG = (210, 172, 84)        # ฟันหมวกหมาป่า
+DK_BLADE = (42, 50, 72)         # ใบดาบยักษ์: กลางเข้ม ขอบบนสว่าง ขอบล่างน้ำเงิน (แบบภาพตัวอย่าง)
+DK_BLADE_HI = (198, 216, 232)
+DK_BLADE_MID = (112, 134, 170)
+DK_BLADE_LO = (72, 98, 150)
+DK_GRIP = (176, 140, 70)        # ด้ามพันหนัง
+DK_POMMEL = (150, 156, 170)
+DK_TRAIL = ((112, 122, 170), (228, 234, 252))
+DK_SHOULDER = {"A": (12, 15), "B": (28, 15)}      # A = แขนซ้ายจอ (แขนขวาของตัวบอส), B = แขนขวาจอ
+
+
+def _dk_ready(**extra):
+    """ท่ายืนพร้อมสู้ (แบบภาพตัวอย่าง): มือขวาจอกำด้ามข้างหัว ดาบยักษ์พาดบ่า ใบดาบยื่นออกไปทางซ้ายจอหลังหัว
+    แขนอีกข้างห้อยกำหมัดข้างตัว"""
+    pose = {"sword": ((29, 6), (-1, 0.36), 36), "behind": True, "hands": {"A": (10, 25), "B": (29, 6)},
+            "elbow": {"B": 5}}
+    pose.update(extra)
+    return pose
+
+
+# ท่า: sword = (จุดมือที่กำด้าม, ทิศใบดาบ, ยาวที่เห็น)  hands = จุดมือ A/B หรือ "both" (สองมือกำด้าม)
+#   behind = ดาบอยู่หลังตัว  shift/drop = ท่อนบนขยับ  spread = กางขา  legs = ยกเท้า (A, B)
+#   jump = ตัวลอยกี่พิกเซล (ใช้คำนวณผ้าคลุมเท่านั้น ตัวลอยจริงใช้ lift ของท่าโจมตี)
+#   smear = รอยดาบ (center, rx, ry, องศาเริ่ม, องศาจบ, หนา, "full"/"fade")  persp = ใบดาบพุ่งเข้าหากล้อง (ปลายใหญ่)
+DK_POSES = {
+    "ready": _dk_ready(),
+    "ready_breath": _dk_ready(drop=1),
+    # ---- กวาดกว้างจากซ้ายไปขวา: ง้างดาบไปซ้ายจอสุดตัว -> กวาดผ่านด้านหน้า -> ส่งดาบขึ้นขวาบน ----
+    "sw_load": {"sword": ((7, 18), (-1, -0.35), 32), "hands": "both", "shift": -2, "spread": 2, "head": (-1, 0)},
+    "sw_load2": {"sword": ((7, 19), (-1, -0.2), 32), "hands": "both", "shift": -3, "drop": 1, "spread": 2,
+                 "head": (-1, 1)},
+    "sw_hit": {"sword": ((30, 21), (1, 0.12), 32), "hands": "both", "shift": 2, "drop": 1, "spread": 3,
+               "smear": ((20, 21), 38, 9, 180, 10, 0.55, "full")},
+    "sw_follow": {"sword": ((31, 16), (0.8, -0.6), 32), "hands": "both", "shift": 3, "spread": 3, "head": (1, 0),
+                  "smear": ((20, 21), 38, 9, 120, -10, 0.35, "fade")},
+    "sw_follow2": {"sword": ((30, 14), (0.55, -0.85), 32), "hands": "both", "shift": 2, "spread": 2, "head": (1, 0)},
+    "sw_recover": {"sword": ((24, 5), (-0.35, -1), 32), "hands": "both", "shift": 1, "spread": 1,
+                   "behind": True},
+    # ---- กระโดดสูงแล้วฟาดลงพื้น: ย่อ (ชูดาบเหนือหัว) -> ลอยขึ้น -> ฟาดลงจากฟ้า -> ดาบปักพื้น ----
+    "sl_crouch": {"sword": ((20, 4), (0.1, -1), 30), "hands": "both", "drop": 4, "spread": 3, "behind": True},
+    "sl_rise": {"sword": ((20, 2), (0.05, -1), 26), "hands": "both", "legs": (3, 3), "jump": 12, "behind": True},
+    "sl_apex": {"sword": ((20, -3), (-0.15, -1), 24), "hands": "both", "legs": (5, 5), "jump": 22, "drop": -1,
+                "behind": True, "elbow": {"A": 5, "B": 5}},
+    "sl_fall": {"sword": ((20, 2), (0.05, -1), 22), "hands": "both", "legs": (3, 2), "jump": 14,
+                "smear": ((20, 8), 5, 28, -95, 60, 0.5, "full"), "elbow": {"A": 5, "B": 5}},
+    "sl_slam": {"sword": ((20, 21), (0, 1), 17), "hands": "both", "drop": 5, "spread": 4, "head": (0, 1),
+                "smear": ((20, 8), 4, 27, -100, 80, 0.55, "full"), "elbow": {"A": 4, "B": 4}},
+    "sl_hold": {"sword": ((20, 21), (0, 1), 17), "hands": "both", "drop": 4, "spread": 4, "head": (0, 1),
+                "smear": ((20, 8), 4, 27, -20, 80, 0.3, "fade"), "elbow": {"A": 4, "B": 4}},
+    "sl_pull": {"sword": ((21, 21), (0.1, 1), 16), "hands": "both", "drop": 2, "spread": 3},
+    # ---- แทงไปข้างหน้า: ดึงดาบมาข้างสะโพกขวาจอ ใบดาบชี้ข้ามตัว -> แทงพุ่งเข้าหากลุ่มคน (ใบดาบพุ่งเข้าหากล้อง) ----
+    "th_load": {"sword": ((31, 15), (-0.9, 0.42), 32), "hands": "both", "shift": 3, "drop": 1, "spread": 2,
+                "head": (1, 0)},
+    "th_load2": {"sword": ((33, 14), (-0.9, 0.42), 32), "hands": "both", "shift": 4, "drop": 2, "spread": 3,
+                 "head": (1, 1), "shine": True},
+    # แทง: สองมือดันด้ามมากลางอก ใบดาบพุ่งตรงเข้าหากล้อง/กลุ่มคน (บนภาพเห็นแค่กระบัง ตัวใบดาบวาดใน draw_overlay
+    #   ทับกลุ่มคน ยาวจากมือไปถึงคนแถวหน้า ปลายใกล้กล้องกว้างกว่า)
+    "th_thrust": {"sword": ((20, 19), (0, 1), 4), "hands": "both", "drop": 2, "spread": 4, "stub": True,
+                  "head": (0, 1), "elbow": {"A": 4, "B": 4}},
+    "th_hold": {"sword": ((20, 19), (0, 1), 4), "hands": "both", "drop": 2, "spread": 4, "stub": True,
+                "head": (0, 1), "elbow": {"A": 4, "B": 4}},
+    "th_back": {"sword": ((24, 17), (-0.9, 0.3), 32), "hands": "both", "shift": 1, "drop": 1, "spread": 2},
+    # ---- ฟันเร็วซ้าย->ขวา แล้วย้อนขวา->ซ้าย ----
+    "ds_load": {"sword": ((8, 15), (-0.9, -0.55), 32), "hands": "both", "shift": -2, "spread": 2, "head": (-1, 0)},
+    "ds_hit1": {"sword": ((31, 19), (1, 0.2), 32), "hands": "both", "shift": 2, "spread": 3,
+                "smear": ((20, 17), 36, 7, 200, 15, 0.55, "full")},
+    "ds_turn": {"sword": ((32, 15), (0.95, -0.4), 32), "hands": "both", "shift": 3, "spread": 3, "head": (1, 0),
+                "smear": ((20, 17), 36, 7, 120, 0, 0.3, "fade")},
+    "ds_hit2": {"sword": ((9, 19), (-1, 0.2), 32), "hands": "both", "shift": -2, "spread": 3,
+                "smear": ((20, 19), 36, 7, -20, 165, 0.55, "full")},
+    "ds_follow": {"sword": ((8, 15), (-0.95, -0.4), 32), "hands": "both", "shift": -3, "spread": 2,
+                  "head": (-1, 0), "smear": ((20, 19), 36, 7, 60, 180, 0.3, "fade")},
+}
+for _i, (_a, _b) in enumerate(((3, 0), (0, 0), (0, 3), (0, 0))):    # เดินหนักๆ 2 ก้าว ถือดาบพาดบ่า
+    DK_POSES[f"walk{_i}"] = _dk_ready(legs=(_a, _b), drop=0 if _a or _b else 1, shift=(-1, 0, 1, 0)[_i])
+
+# ท่าโจมตี 4 แบบ: แต่ละภาพ = (ท่า, พุ่งเข้าหาคนกี่ unit, ลอยกี่พิกเซล, แรงที่โดน (0 = ไม่โดน))
+# ทุกท่าจบที่ "ready" (ดาบพาดบ่า) แล้วสุ่มท่าถัดไปที่ไม่ซ้ำท่าเดิม
+DK_MOVES = {
+    "sweep": [("sw_load", 0, 0, 0), ("sw_load", 0, 0, 0), ("sw_load2", 0, 0, 0), ("sw_hit", 24, 0, 1.0),
+              ("sw_follow", 20, 0, 0), ("sw_follow2", 12, 0, 0), ("sw_follow2", 8, 0, 0), ("sw_recover", 4, 0, 0),
+              ("ready", 0, 0, 0)],
+    "slam": [("sl_crouch", 0, 0, 0), ("sl_crouch", 0, 0, 0), ("sl_rise", 8, 12, 0), ("sl_apex", 18, 22, 0),
+             ("sl_apex", 26, 24, 0), ("sl_fall", 34, 14, 0), ("sl_slam", 40, 0, 1.4), ("sl_hold", 40, 0, 0),
+             ("sl_hold", 40, 0, 0), ("sl_pull", 30, 0, 0), ("sw_recover", 12, 0, 0), ("ready", 0, 0, 0)],
+    "thrust": [("th_load", 0, 0, 0), ("th_load2", -6, 0, 0), ("th_load2", -6, 0, 0), ("th_thrust", 48, 0, 1.0),
+               ("th_hold", 46, 0, 0), ("th_hold", 42, 0, 0), ("th_back", 20, 0, 0), ("ready", 0, 0, 0)],
+    "double": [("ds_load", 0, 0, 0), ("ds_hit1", 20, 0, 0.6), ("ds_turn", 16, 0, 0), ("ds_hit2", 22, 0, 0.7),
+               ("ds_follow", 14, 0, 0), ("sw_recover", 4, 0, 0), ("ready", 0, 0, 0)],
+}
+DK_SLAM_SHOCK = ("sl_slam", "sl_hold")      # ดาบปักพื้น: คลื่นกระแทกบนพื้น
+DK_THRUST = ("th_thrust", "th_hold")        # ใบดาบพุ่งเข้าหากลุ่มคน (วาดทับคนใน draw_overlay)
+
+
+def _dk_cape(names, lifts=None, loop=False, fps=12):
+    """ฟิสิกส์ผ้าคลุม: ชายผ้าเป็นมวลติดสปริงกับไหล่ ตัวขยับ/กระโดด ผ้าจะลากตามช้ากว่าแล้วเหวี่ยงเลยไปนิดหน่อย
+    คืน [(ชายผ้าเลื่อนไป x, y), ...] ต่อภาพ  loop = ท่าวนซ้ำ (ยืน/เดิน): จำลองหลายรอบให้ต่อกันลื่น"""
+    anchors = []
+    for k, name in enumerate(names):
+        pose = DK_POSES[name]
+        jump = lifts[k] if lifts else pose.get("jump", 0)
+        anchors.append((pose.get("shift", 0) * 3, pose.get("drop", 0) * 1.5 - jump))   # x3: ตัวบิดเหวี่ยงผ้าแรงกว่าตัวขยับ
+    n = len(anchors)
+    K, DRAG, SUB = 70.0, 7.0, 10
+    dt = 1 / fps / SUB
+    px, py = anchors[0]
+    vx = vy = 0.0
+    out = []
+    for _ in range(3 if loop else 1):           # วนหลายรอบ: รอบสุดท้ายผ้าเข้าจังหวะแล้ว ต่อรอบได้ลื่น
+        out = []
+        for k in range(n):
+            (ax0, ay0), (ax1, ay1) = anchors[k - 1] if (k or loop) else anchors[0], anchors[k]
+            for s in range(SUB):
+                u = (s + 1) / SUB
+                ax, ay = ax0 + (ax1 - ax0) * u, ay0 + (ay1 - ay0) * u
+                vx += (K * (ax - px) - DRAG * vx) * dt
+                vy += (K * (ay - py) - DRAG * vy) * dt
+                px += vx * dt
+                py += vy * dt
+            out.append((px - ax1, py - ay1))
+    return out
+
+
+def draw_greatsword(out, hand, direction, length, persp=1.0):
+    """ดาบยักษ์: ใบหนากว้าง (ขอบบนสว่าง กลางเข้ม ขอบล่างน้ำเงิน) ปลายแหลม กระบังสั้น ด้ามยาวพันหนัง ปุ่มท้ายด้าม
+    persp > 1 = ใบดาบพุ่งเข้าหากล้อง ปลายใกล้กล้องจึงกว้างกว่าโคน"""
+    V = pygame.math.Vector2
+    d = V(direction).normalize()
+    n = V(-d.y, d.x)
+    if n.y > 0 or (n.y == 0 and n.x < 0):       # ขอบสว่างอยู่ด้านบนเสมอ (แสงมาจากข้างบน)
+        n = -n
+    h = V(hand)
+    end = h - d * 6
+    pygame.draw.line(out, DK_OUT, h + d, end, 3)                 # ด้าม
+    pygame.draw.line(out, DK_GRIP, h + d, end + d, 1)
+    pygame.draw.circle(out, DK_OUT, (round(end.x), round(end.y)), 2)
+    pygame.draw.circle(out, DK_POMMEL, (round(end.x), round(end.y)), 1)
+    w, wt = 3.2, 3.2 * persp
+    b0, tip = h + d * 3, h + d * length
+    taper = tip - d * min(6, length * 0.35)
+    poly = [b0 + n * w, taper + n * wt, tip + n * wt * 0.25, taper - n * wt, b0 - n * w]
+    pygame.draw.polygon(out, DK_BLADE, poly)
+    pygame.draw.line(out, DK_BLADE_HI, b0 + n * (w - 1), taper + n * (wt - 1), 1)
+    pygame.draw.line(out, DK_BLADE_MID, b0 + n * (w - 2), taper + n * (wt - 2), 1)
+    pygame.draw.line(out, DK_BLADE_LO, b0 - n * (w - 1), taper - n * (wt - 1), 1)
+    pygame.draw.polygon(out, DK_OUT, poly, 1)
+    g = h + d * 2                                                # กระบัง
+    pygame.draw.line(out, DK_OUT, g - n * 5, g + n * 5, 3)
+    pygame.draw.line(out, DK_MID, g - n * 4, g + n * 4, 1)
+    return tip
+
+
+def draw_arc_smear(out, center, rx, ry, a0, a1, thick, kind):
+    """รอยดาบเสี้ยวพระจันทร์ตามวงรี (องศา a0 -> a1): หนากลาง เรียวสองปลาย  fade = เหลือเส้นบางที่ปลายทาง"""
+    V = pygame.math.Vector2
+    c = V(center)
+    at = lambda a, r: c + V(rx * r * math.cos(math.radians(a)), ry * r * math.sin(math.radians(a)))
+    us = [a0 + (a1 - a0) * j / 14 for j in range(15)]
+    if kind == "fade":
+        pts = [at(a, 1) for a in us[6:]]
+        pygame.draw.lines(out, DK_TRAIL[0], False, pts, 2)
+        return
+    for color, scale in zip(DK_TRAIL, (1.0, 0.45)):
+        outer = [at(a, 1) for a in us]
+        inner = [at(a, 1 - thick * scale * math.sin(math.pi * j / 14) ** 0.8) for j, a in enumerate(us)]
+        pygame.draw.polygon(out, color, outer + inner[::-1])
+
+
+def draw_cape(out, up, rel, phase):
+    """ผ้าคลุมขาดรุ่ยห้อยจากไหล่ไปข้างหลัง (เอียงไปทางซ้ายจอแบบภาพตัวอย่าง) rel = ชายผ้าเลื่อนไปจากที่ห้อยปกติ"""
+    cx, cy = max(-12, min(12, rel[0])), max(-11, min(3, rel[1]))
+    hem_y = 33 + cy
+    flare = 1 + max(0.0, -cy) / 11 * 0.2         # ผ้าปลิวขึ้น: บานออกนิดหน่อย
+    hem = []
+    for j in range(10):
+        t = j / 9
+        x = 20 + (-17 + 30 * t) * flare + cx * (0.5 + 0.5 * t)
+        rag = (2, 0, 3, 1, 0, 2, 1, 3, 0, 2)[(j + phase) % 10]        # ชายผ้าขาดเป็นริ้ว
+        hem.append((x, hem_y + rag - abs(cx) * 0.15 * (1 - t)))
+    mid_y = 14 + (hem_y - 14) * 0.5
+    poly = [(11, 14), (4 + cx * 0.45, mid_y)] + hem + [(33 + cx * 0.45, mid_y), (29, 14)]
+    poly = [up(p) for p in poly]
+    pygame.draw.polygon(out, DK_CAPE, poly)
+    for j in (2, 4, 6, 8):                       # รอยพับผ้าลงไปที่ชาย
+        top = up((12 + j * 2, 16))
+        pygame.draw.line(out, DK_CAPE_SH, top, up(hem[j]))
+    pygame.draw.line(out, DK_CAPE_HI, poly[0], poly[1])
+    pygame.draw.polygon(out, DK_OUT, poly, 1)
+
+
+def dark_knight_pose(pose, cape=(0, 0), phase=0):
+    W, H = DK_SIZE
+    ox, oy = DK_ORIGIN
+    dx, dy = pose.get("shift", 0), pose.get("drop", 0)
+    spread = pose.get("spread", 0)
+    out = pygame.Surface((W, H), pygame.SRCALPHA)
+    up = lambda p: (p[0] + ox + dx, p[1] + oy + dy)       # ท่อนบน
+    at = lambda p: (p[0] + ox, p[1] + oy)                 # ส่วนที่ติดพื้น
+    V = pygame.math.Vector2
+    armor_x = max(-1, min(1, round(cape[0] * 0.2)))       # แผ่นเกราะห้อย (กระโปรงเกราะ) แกว่งตามแรงเหวี่ยงเบาๆ
+    armor_y = max(-1, min(1, round(cape[1] * 0.25)))
+
+    def blob(points, fill, outline=DK_OUT):
+        pygame.draw.polygon(out, fill, points)
+        pygame.draw.polygon(out, outline, points, 1)
+
+    draw_cape(out, up, cape, phase)
+    hand, sdir, slen = pose["sword"]
+    if pose.get("behind"):
+        draw_greatsword(out, up(hand), sdir, slen)
+    # ---- ขา: เกราะขาเป็นปล้อง สนับเข่ามีหนาม รองเท้าเหล็ก  ย่อตัว = เข่าบานออก ----
+    lift = pose.get("legs", (0, 0))
+    for k, left in enumerate((True, False)):
+        side = -1 if left else 1
+        hip = V(up((17 if left else 23, 25)))
+        foot = V(at(((16 if left else 24) + side * spread, 34 - lift[k])))
+        bend = max(0, dy - 1) + lift[k] // 2 + 1
+        knee = (hip + foot) / 2 + V(side * bend, 0)
+        limb(out, [hip, knee, foot], 3, DK_OUT)
+        limb(out, [hip, knee, foot], 2, DK_ARMOR)
+        pygame.draw.line(out, DK_MID, hip + V(-side, 1), knee + V(-side, -1))
+        pygame.draw.circle(out, DK_OUT, (round(knee.x), round(knee.y)), 2)              # สนับเข่า + หนาม
+        pygame.draw.circle(out, DK_HI, (round(knee.x), round(knee.y)), 1)
+        out.set_at((round(knee.x + side * 2), round(knee.y - 1)), DK_OUT)
+        fx = round(foot.x) - (3 if left else 1)
+        blob([(fx, foot.y), (fx + 4, foot.y), (fx + 4, foot.y + 1), (fx, foot.y + 1)], DK_MID)
+    # ---- กระโปรงเกราะ 3 แผ่น (แกว่งตามตัว) ----
+    for x0 in (14, 18, 22):
+        p = [up((x0 + armor_x * (x0 != 18), 23)), up((x0 + 4, 23)),
+             up((x0 + 4 + armor_x, 27 + armor_y)), up((x0 + armor_x, 27 + armor_y))]
+        blob(p, DK_ARMOR)
+        pygame.draw.line(out, DK_MID, p[0], (p[3][0], p[3][1] - 1))
+    # ---- เกราะอก: ปล้องๆ เป็นชั้น สันกลาง ----
+    blob([up(p) for p in [(14, 13), (26, 13), (29, 16), (28, 22), (25, 24), (15, 24), (12, 22), (11, 16)]],
+         DK_ARMOR)
+    for y in (17, 20):
+        pygame.draw.line(out, DK_OUT, up((13, y)), up((27, y)))
+        pygame.draw.line(out, DK_MID, up((14, y + 1)), up((26, y + 1)))
+    pygame.draw.line(out, DK_HI, up((20, 14)), up((20, 23)))
+    pygame.draw.line(out, DK_HI, up((13, 15)), up((16, 15)))
+    # ---- หมวกหมาป่า: หูแหลม ช่องตาแดงเรืองแสงเฉียงดุ ปากหมาป่าเห็นฟัน ----
+    hx, hy = pose.get("head", (0, 0))
+    hd = lambda p: up((p[0] + hx, p[1] + hy))
+    blob([hd(p) for p in [(15, 5), (16, 0), (18, 3)]], DK_ARMOR)               # หู
+    blob([hd(p) for p in [(22, 3), (24, 0), (25, 5)]], DK_ARMOR)
+    blob([hd(p) for p in [(16, 3), (24, 3), (26, 6), (26, 10), (23, 14), (17, 14), (14, 10), (14, 6)]], DK_ARMOR)
+    pygame.draw.line(out, DK_HI, hd((17, 4)), hd((22, 4)))
+    out.set_at(hd((18, 5)), DK_SHINE)
+    pygame.draw.line(out, DK_OUT, hd((15, 7)), hd((25, 7)))                    # ช่องตาเข้ม
+    pygame.draw.line(out, DK_OUT, hd((16, 8)), hd((24, 8)))
+    for p in ((16, 7), (17, 8)):
+        out.set_at(hd(p), DK_EYE)
+    for p in ((24, 7), (23, 8)):
+        out.set_at(hd(p), DK_EYE)
+    out.set_at(hd((17, 8)), DK_EYE_GLOW)
+    out.set_at(hd((23, 8)), DK_EYE_GLOW)
+    pygame.draw.line(out, DK_MID, hd((20, 9)), hd((20, 10)))                   # สันจมูกหมาป่า
+    pygame.draw.line(out, DK_OUT, hd((17, 12)), hd((23, 12)))                  # ปาก + เขี้ยว
+    for p in ((18, 11), (22, 11), (20, 13)):
+        out.set_at(hd(p), DK_FANG)
+    # ---- รอยดาบ (ทับตัว ใต้ดาบ) ----
+    if pose.get("smear"):
+        c, rx, ry, a0, a1, thick, kind = pose["smear"]
+        draw_arc_smear(out, up(c), rx, ry, a0, a1, thick, kind)
+    # ---- แขน: เกราะแขนเป็นปล้อง ถุงมือเหล็ก ----
+    hands = pose["hands"]
+    if hands == "both":                                  # สองมือกำด้ามยาว: มือหนึ่งติดกระบัง อีกมือต่ำลงมาทางท้ายด้าม
+        h1 = V(hand)
+        h2 = h1 - V(sdir).normalize() * 3.5
+        a, b = (h1, h2) if h1.x <= h2.x else (h2, h1)
+        hands = {"A": tuple(a), "B": tuple(b)}
+    elbow_out = pose.get("elbow", {})
+    for side in ("A", "B"):
+        sh, hn = V(up(DK_SHOULDER[side])), V(up(hands[side]))
+        outward = -1 if side == "A" else 1
+        el = (sh + hn) / 2 + V(outward * elbow_out.get(side, 3), 1)
+        limb(out, [sh, el, hn], 3, DK_OUT)
+        limb(out, [sh, el, hn], 2, DK_ARMOR)
+        pygame.draw.line(out, DK_MID, sh.lerp(el, 0.3), el)
+        pygame.draw.circle(out, DK_OUT, (round(el.x), round(el.y)), 2)
+        pygame.draw.circle(out, DK_MID, (round(el.x), round(el.y)), 1)
+    for side in ("A", "B"):                              # เกราะไหล่ใหญ่ซ้อน 2 ชั้น มีหนามด้านนอก
+        sx, sy = up(DK_SHOULDER[side])
+        outward = -1 if side == "A" else 1
+        blob([(sx - 4, sy + 2), (sx - 3, sy - 3), (sx + 3, sy - 3), (sx + 4, sy + 2), (sx, sy + 4)], DK_ARMOR)
+        pygame.draw.line(out, DK_HI, (sx - 2, sy - 2), (sx + 2, sy - 2))
+        pygame.draw.line(out, DK_OUT, (sx - 3, sy + 1), (sx + 3, sy + 1))
+        blob([(sx + outward * 3, sy - 3), (sx + outward * 5, sy - 6), (sx + outward * 4, sy - 1)], DK_MID)
+    if pose.get("stub"):                                 # ใบดาบชี้เข้าหากล้อง: เห็นแค่กระบังขวางหน้ามือ
+        g = V(up(hand)) + V(0, 2)
+        pygame.draw.line(out, DK_OUT, g - V(5, 0), g + V(5, 0), 3)
+        pygame.draw.line(out, DK_MID, g - V(4, 0), g + V(4, 0), 1)
+    elif not pose.get("behind"):
+        tip = draw_greatsword(out, up(hand), sdir, slen, pose.get("persp", 1.0))
+        d = V(sdir).normalize()
+        if pose.get("speed"):                            # แทง: เส้นความเร็วขนานใบดาบ ตามหลังปลายดาบ + ประกายที่ปลาย
+            nrm = V(-d.y, d.x)
+            for off, a, b in ((-6, 8, 22), (-10, 14, 24), (6, 6, 20), (10, 12, 26), (0, 30, 40)):
+                pygame.draw.line(out, DK_TRAIL[0], tip - d * b + nrm * off, tip - d * a + nrm * off, 1)
+            draw_shine(out, tip + d)
+        elif pose.get("shine"):                          # ง้างแทง: ประกายวาบบนใบดาบ
+            draw_shine(out, tip - d * 4)
+    for side in ("A", "B"):                              # ถุงมือเหล็ก (ทับด้ามดาบ = กำอยู่)
+        hn = V(up(hands[side]))
+        pygame.draw.circle(out, DK_OUT, (round(hn.x), round(hn.y)), 3)
+        pygame.draw.circle(out, DK_MID, (round(hn.x), round(hn.y)), 2)
+        out.set_at((round(hn.x) - 1, round(hn.y) - 1), DK_HI)
+    return out, []
+
+
+def build_dark_knight(spec):
+    """สร้างภาพทุกท่าของ spec พร้อมผ้าคลุมที่คำนวณฟิสิกส์ตามลำดับท่า (spec["cape"] = แบ่งช่วงจำลองแยกกัน)"""
+    names = spec["poses"]
+    lifts = spec.get("lifts")
+    capes = []
+    for start, n in spec.get("cape", [(0, len(names))]):
+        capes += _dk_cape(names[start:start + n], lifts and lifts[start:start + n], loop=spec.get("loop", False),
+                          fps=spec.get("fps", 12))
+    flutter = spec.get("flutter", 0)                     # ยืนนิ่ง: ลมพัดผ้าเบาๆ
+    frames = []
+    for k, name in enumerate(names):
+        cx, cy = capes[k]
+        cx += flutter * math.sin(k / len(names) * 2 * math.pi)
+        frames.append(dark_knight_pose(DK_POSES[name], (cx, cy), k))
+    return frames
+
+
+def _dk_attack():
+    """รวมท่าโจมตีทั้ง 4 เป็นเฟรมเดียวกันต่อกัน: คืน (spec, moves{ชื่อ: (เริ่ม, จำนวน)}, lunge, lift, impact, แรง, shock)"""
+    names, lifts, cape, moves = [], [], [], {}
+    lunge, lift, strength, shock, thrust = {}, {}, {}, {}, {}
+    for move, frames in DK_MOVES.items():
+        moves[move] = (len(names), len(frames))
+        cape.append((len(names), len(frames)))
+        for pose, lg, lf, hit in frames:
+            i = len(names)
+            names.append(pose)
+            lifts.append(lf)
+            if lg:
+                lunge[i] = lg
+            if lf:
+                lift[i] = lf
+            if hit:
+                strength[i] = hit
+            if pose in DK_SLAM_SHOCK:
+                shock[i] = pose == DK_SLAM_SHOCK[1]          # ภาพที่สอง: วงกว้างขึ้น
+            if pose in DK_THRUST:                            # จุดโคนใบดาบบนเฟรม (ใต้กระบัง) + ภาพแรก = กำลังพุ่ง
+                p = DK_POSES[pose]
+                (hx, hy), dx, dy = p["sword"][0], p.get("shift", 0), p.get("drop", 0)
+                thrust[i] = (DK_ORIGIN[0] + hx + dx, DK_ORIGIN[1] + hy + dy + 3, pose == DK_THRUST[0])
+    spec = {"kind": "dark_knight", "poses": names, "lifts": lifts, "cape": cape}
+    return spec, moves, lunge, lift, sorted(strength), strength, shock, thrust
+
+
+_DK_SPEC, _DK_MOVES, _DK_LUNGE, _DK_LIFT, _DK_IMPACT, _DK_STRENGTH, _DK_SHOCK, _DK_THRUST = _dk_attack()
+STYLES[9] = {
+    "name": "the Dread Knight",
+    # บอสสุดท้าย: อัศวินเกราะดำหมวกหมาป่าตาแดง ผ้าคลุมขาดรุ่ย ดาบยักษ์พาดบ่า (แบบภาพตัวอย่าง)
+    # ยืนพร้อมสู้ -> คนข้ามเส้นหมด: เดินหนักๆ ~2 ก้าวเข้าหา -> สุ่มท่าโจมตี 4 แบบ ไม่ซ้ำท่าเดิมติดกัน
+    "colored": True,
+    "idle": ("Idle", 0), "idle_fps": 3,
+    "idle_build": {"kind": "dark_knight", "poses": ["ready", "ready", "ready_breath", "ready_breath"],
+                   "loop": True, "flutter": 2.5},
+    "run_build": {"kind": "dark_knight", "poses": [f"walk{i}" for i in range(4)], "loop": True, "fps": 5},
+    "run_fps": 5, "run_speed": 300,
+    "attack": ("Idle", 0),
+    "build": _DK_SPEC,
+    "moves": _DK_MOVES,                          # ชื่อท่า -> (เฟรมแรก, จำนวนเฟรม)  สุ่มเล่นทีละท่า
+    "attack_fps": 12, "attack_frames": len(_DK_SPEC["poses"]),
+    "impact": _DK_IMPACT,
+    "impact_strength": _DK_STRENGTH,             # ฟาดลงพื้นแรงสุด
+    "shock_frames": _DK_SHOCK,
+    "thrust_frames": _DK_THRUST,                 # เฟรม -> (โคนใบดาบบนเฟรม x, y, กำลังพุ่ง)
+    "shock": 1.6,
+    "lunge": _DK_LUNGE, "lift": _DK_LIFT,
+    "gap": 70,                                   # ตัวใหญ่: ยืนห่างคนแถวหน้ากว่าบอสอื่น
+    "shadow": 40,
+    "label_y": DK_ORIGIN[1] - 2,                 # ป้ายจำนวนเหนือหัว (เฟรมมีที่ว่างเหนือหัวเผื่อชูดาบ)
+    "tint": (44, 48, 68),                        # ไม่ได้ใช้ย้อม ใช้เป็นสีเศษเกราะที่กระเด็น
+    "label": (40, 36, 60),
+}
+
+
 def build_frames(style, sheet, row, spec=None):
     """เฟรมท่าที่ไม่มีในชีต สร้างจากเฟรมแรกของ (sheet, row) ตาม spec (ไม่ใส่ = style["build"])
     kind "boxer" คืน [(ภาพที่แต่งหน้าแล้ว, พิกเซลที่ต้องทาหลังย้อมสี), ...]  แบบอื่นคืนภาพเปล่า"""
@@ -1150,6 +1749,10 @@ def build_frames(style, sheet, row, spec=None):
     base = sprites.frames(sheet, row)[0]
     if spec["kind"] == "boxer":
         return build_boxer(style, base, spec["poses"])
+    if spec["kind"] == "dark_knight":
+        return build_dark_knight(spec)
+    if spec["kind"] == "zombie":
+        return [zombie_pose(ZOMBIE_POSES[name]) for name in spec["poses"]]
     if spec["kind"] == "samurai":
         return [samurai_pose(SAMURAI_POSES[name]) for name in spec["poses"]]
     if spec["kind"] == "knight":
@@ -1207,6 +1810,7 @@ class Boss(EnemyGroup):
         self.chip_color = self.style["tint"]           # main.py: สีเศษที่กระเด็นจากตัวบอส
         self.stand_z = z + self.style.get("stand", C.BOSS_STAND)  # ตำแหน่งตัวบอสตอนนี้
         self.approaching = False         # บอสที่วิ่งเข้าหา (run_speed): ยังไม่เริ่มหักจำนวนจนกว่าจะถึง
+        self.intro_t = None              # ท่าเปิดตัว (ชักดาบ ฯลฯ) เล่นมานานเท่าไร  None = ไม่มี/จบแล้ว
         self.run_from = self.stand_z
         self.run_t = 0.0
         self.target_z = self.stand_z     # เดินไปหยุดตรงนี้
@@ -1215,6 +1819,8 @@ class Boss(EnemyGroup):
         self.placed = None               # ตำแหน่งที่วาดตัวบอสเฟรมนี้ (draw_overlay ใช้ต่อรอยหมัดจากไหล่)
         self.shoulders = None
         self.layer = None
+        self.move = None                 # บอสที่มีหลายท่า (moves): ท่าที่กำลังเล่น + เวลาในท่านั้น
+        self.move_t = 0.0
 
     @property
     def contact_z(self):
@@ -1225,7 +1831,7 @@ class Boss(EnemyGroup):
     def on_reach(self, crowd):
         super().on_reach(crowd)
         # บอสปะทะนานกว่าศัตรูธรรมดา จะได้เห็นท่าต่อยหลายหมัด
-        self.rate = max(C.FIGHT_MIN_RATE, min(self.count, crowd.count) / C.BOSS_FIGHT_TIME)
+        self.rate = max(C.BOSS_MIN_RATE, min(self.count, crowd.count) / C.BOSS_FIGHT_TIME)
         # ก้อนคนเล็กหยุดห่างบอสมาก ก้อนใหญ่หยุดใกล้: บอสเดินเข้ามาหยุดตรงหน้าคนแถวแรกเสมอ
         self.target_z = crowd.front_z() + self.style.get("gap", C.BOSS_GAP)
         if "run_speed" in self.style:    # ยืนรอไกลๆ แล้ววิ่งเข้ามา: fighting = True (หยุดวิ่ง) แต่ยังไม่ตีกัน
@@ -1261,7 +1867,7 @@ class Boss(EnemyGroup):
         self.impact = False
         if self.approaching:
             self.anim_t += dt
-            if getattr(self, "intro_t", None) is not None:          # ท่าเปิดตัวยังไม่จบ: ยืนอยู่กับที่
+            if self.intro_t is not None:                             # ท่าเปิดตัวยังไม่จบ: ยืนอยู่กับที่
                 self.intro_t += dt
                 if self.intro_t >= self.intro_length:
                     self.intro_t = None
@@ -1275,7 +1881,10 @@ class Boss(EnemyGroup):
         self.stand_z += (self.target_z - self.stand_z) * min(1.0, C.BOSS_STEP_SPEED * dt)
         if self.fighting:
             self.attack_t += dt
-            i = int(self.attack_t * self.style["attack_fps"]) % self.style["attack_frames"]
+            if "moves" in self.style:
+                i = self.next_move_frame(dt)
+            else:
+                i = int(self.attack_t * self.style["attack_fps"]) % self.style["attack_frames"]
             imp = self.style["impact"]
             hits = imp if isinstance(imp, list) else ([] if imp is None else [imp])
             self.impact = i in hits and i != self.frame_i      # เพิ่งเข้าท่าที่โดน
@@ -1294,6 +1903,19 @@ class Boss(EnemyGroup):
                     i = 2                                 # ช่วงหมัดถึงตัว: ย่อลึกสุด
             self.frame_i = i
 
+    def next_move_frame(self, dt):
+        """บอสหลายท่า: เล่นท่าปัจจุบันจนจบ แล้วสุ่มท่าใหม่ที่ไม่ใช่ท่าเดิม  คืนเลขเฟรมรวมของภาพที่ต้องแสดง"""
+        moves, fps = self.style["moves"], self.style["attack_fps"]
+        if self.move is None:
+            self.move = random.choice(list(moves))
+        self.move_t += dt
+        start, n = moves[self.move]
+        if self.move_t * fps >= n:                       # ท่านี้จบแล้ว: ต่อท่าใหม่ (ห้ามซ้ำท่าเดิมติดกัน)
+            self.move_t -= n / fps
+            self.move = random.choice([m for m in moves if m != self.move])
+            start, n = moves[self.move]
+        return start + min(n - 1, int(self.move_t * fps))
+
     def punch_phase(self, left, t=None):
         """หมัดรัว: แขนจริงข้างนี้อยู่ที่หมัดที่เท่าไร และช่วงไหนของหมัด (0..1)
         0..PUNCH_WIND ง้าง (ดึงไหล่กลับ) -> ..PUNCH_HIT พุ่งออก -> ค้าง -> ดึงกลับ  ซ้าย/ขวาสลับกันครึ่งจังหวะ"""
@@ -1311,7 +1933,7 @@ class Boss(EnemyGroup):
     def current(self):
         """(ภาพเฟรมนี้, พุ่งเข้าหาคนกี่ unit, ลอยจากพื้นกี่พิกเซล sprite)"""
         if self.approaching:
-            if getattr(self, "intro_t", None) is not None:
+            if self.intro_t is not None:
                 frames = self.intro_frames()
                 return frames[min(len(frames) - 1, int(self.intro_t * self.style["intro_fps"]))], 0, 0
             frames = boss_frames(self.kind, "run")      # จังหวะขา x ชุดท่า (ดู run_part)
@@ -1321,8 +1943,7 @@ class Boss(EnemyGroup):
         if self.fighting:
             frames = boss_frames(self.kind, "attack")
             i = self.frame_i
-            seq = self.style.get("attack_seq")
-            frame = frames[(seq[i] if seq else i) % len(frames)]
+            frame = frames[i % len(frames)]
             return frame, self.style["lunge"].get(i, 0), self.style.get("lift", {}).get(i, 0)
         frames = boss_frames(self.kind, "idle")
         return frames[int(self.anim_t * self.style["idle_fps"]) % len(frames)], 0, 0
@@ -1338,16 +1959,22 @@ class Boss(EnemyGroup):
         size = scale * C.BOSS_SCALE                       # 1 พิกเซลของ sprite = กี่พิกเซลบนจอ
         w, h = int(frame.get_width() * size), int(frame.get_height() * size)
         up = lift * size                                  # กระโดด: ยกภาพขึ้น เงายังอยู่ที่พื้น
-        self.draw_shadow(screen, sx, sy, int(32 * size), lift)   # เงาตามขนาดตัว (เฟรมกว้างกว่า 32 ได้ เผื่อดาบ)
+        self.draw_shadow(screen, sx, sy, int(self.style.get("shadow", 32) * size), lift)   # เงาตามขนาดตัว (เฟรมกว้างกว่า 32 ได้ เผื่อดาบ)
         impact = self.style["impact"]
         if self.fighting and isinstance(impact, int) and self.frame_i in (impact, impact + 1):
             self.draw_shockwave(screen, camera, z)
+        shock = self.style.get("shock_frames", {})
+        if self.fighting and self.frame_i in shock:     # ดาบปักพื้น: คลื่นกระแทก (เฟรมหลังวงกว้างขึ้น)
+            self.draw_shockwave(screen, camera, z, shock[self.frame_i])
         screen.blit(sprites.scaled(frame, w, h), (sx - w // 2, sy - h - up))
         self.placed = (sx - w / 2, sy - h - up, size)
 
         # ชื่อ + จำนวนเหนือหัว (ชีตมีที่ว่างเหนือหัวราว 7/32 ของความสูง)
         # เฟรมสูงกว่า 32 (อัศวิน: เผื่อที่ดาบชูเหนือหัว): ป้ายอยู่บนสุดของเฟรม ไม่บังดาบ
-        top = sy - (h * 25 / 32 if frame.get_height() <= 32 else h - 2 * size) - up
+        if "label_y" in self.style:                       # บอสสุดท้าย: ป้ายอยู่เหนือหัวพอดี (ดูท่าที่ตัวยุบ/ลอยด้วย)
+            top = sy - h + self.style["label_y"] * size - up
+        else:
+            top = sy - (h * 25 / 32 if frame.get_height() <= 32 else h - 2 * size) - up
         text = font.render(str(self.count), True, C.WHITE)
         bg = text.get_rect(center=(sx, top - 14)).inflate(12, 4)
         pygame.draw.rect(screen, self.style["label"], bg, border_radius=6)
@@ -1359,6 +1986,9 @@ class Boss(EnemyGroup):
         ไม่งั้นหมัดที่ลงถึงตัวคนจะถูกคนบังหมด)
         แขนจริง 2 ข้างต่อยเป็นจังหวะ: ง้าง (ดึงไหล่กลับ) -> พุ่งลงหาคน -> ค้าง -> ดึงกลับ  แขนจางที่โคนไหล่ไม่บังตัว
         รอบๆ เป็นรอยหมัดเบลอแบบภาพตัวอย่าง: แถบเทา + แกนขาว + เส้นความเร็วสีเข้ม ปลายเป็นกำปั้นพร้อมเงา"""
+        if self.fighting and self.placed and self.crowd and self.frame_i in self.style.get("thrust_frames", {}):
+            self.draw_thrust(screen, camera)
+            return
         bar = self.style.get("barrage")
         if not (bar and "hits_per_sec" in bar and self.fighting and self.placed and self.crowd):
             return
@@ -1466,6 +2096,40 @@ class Boss(EnemyGroup):
             pygame.draw.circle(layer, (*skin, 255), fist, fist_r)
         screen.blit(layer, (0, 0))
 
+    def draw_thrust(self, screen, camera):
+        """แทงเข้าหากลุ่มคน: ใบดาบยักษ์จากมือบอสพุ่งไปถึงคนแถวหน้า (วาดทับกลุ่มคน)
+        ปลายอยู่ใกล้กล้องกว่า จึงกว้างกว่าโคน (มุมมองจริงจาก camera.project)  ภาพแรกมีเส้นความเร็ว + ประกายที่ปลาย"""
+        V = pygame.math.Vector2
+        bx, by, rushing = self.style["thrust_frames"][self.frame_i]
+        ox, oy, size = self.placed
+        base = V(ox + bx * size, oy + by * size)
+        tx, ty, s = camera.project(self.x, self.crowd.front_z() - 18)
+        tip = V(tx, ty - 9 * s)                       # ระดับอกของคนแถวหน้า
+        if (tip - base).length() < 2:
+            return
+        d = (tip - base).normalize()
+        n = V(-d.y, d.x)
+        if n.y > 0:
+            n = -n
+        wb, wt = 3.2 * size, 3.2 * s * C.BOSS_SCALE    # โคน / ปลาย (ใกล้กล้อง = ใหญ่กว่า)
+        wt = max(wt, wb * 1.2)
+        taper = tip - d * min((tip - base).length() * 0.3, wt * 2.2)
+        poly = [base + n * wb, taper + n * wt, tip, taper - n * wt, base - n * wb]
+        ol = max(1, int(size * 0.8))
+        if rushing:                                   # เส้นความเร็วขนานใบดาบ เลยปลายดาบออกไปด้านหลัง
+            for k in (-1.6, -1.15, 1.15, 1.6):
+                a, b = base.lerp(tip, 0.1) + n * wb * k, base.lerp(tip, 0.75) + n * wt * k
+                pygame.draw.line(screen, DK_TRAIL[1], a, b, max(1, int(size * 0.5)))
+        pygame.draw.polygon(screen, DK_BLADE, poly)
+        for off, color in ((0.65, DK_BLADE_HI), (0.3, DK_BLADE_MID), (-0.65, DK_BLADE_LO)):
+            pygame.draw.line(screen, color, base + n * wb * off, taper + n * wt * off, max(1, int(size * 0.7)))
+        pygame.draw.polygon(screen, DK_OUT, poly, ol)
+        if rushing:                                   # ประกาย 4 แฉกที่ปลายดาบ
+            r = 4 * size
+            for a, b in ((V(r, 0), V(-r, 0)), (V(0, r), V(0, -r))):
+                pygame.draw.line(screen, (255, 244, 180), tip + a, tip + b, max(1, int(size * 0.6)))
+            pygame.draw.circle(screen, (255, 255, 255), tip, max(2, int(size * 0.9)))
+
     @staticmethod
     def draw_shadow(screen, sx, sy, w, lift):
         """เงาวงรีใต้เท้า: ลอยสูงขึ้น เงาเล็กลงและจางลง (ช่วยให้รู้ว่ากระโดดอยู่)"""
@@ -1475,9 +2139,10 @@ class Boss(EnemyGroup):
         pygame.draw.ellipse(shadow, (0, 0, 0, int(90 * k)), shadow.get_rect())
         screen.blit(shadow, (sx - sw // 2, sy - sh // 2))
 
-    def draw_shockwave(self, screen, camera, z):
-        """คลื่นกระแทกบนพื้นตรงหน้าบอส ตอนหมัดทุบ / เท้ากระทืบลง"""
-        big = self.frame_i != self.style["impact"]     # เฟรมถัดไป: วงกว้างขึ้น
+    def draw_shockwave(self, screen, camera, z, big=None):
+        """คลื่นกระแทกบนพื้นตรงหน้าบอส ตอนหมัดทุบ / เท้ากระทืบลง / ดาบฟาดพื้น"""
+        if big is None:
+            big = self.frame_i != self.style["impact"]     # เฟรมถัดไป: วงกว้างขึ้น
         cz = z - 25
         s = self.style.get("shock", 1.0)
         for r, color in ((95 * s if big else 60 * s, (230, 230, 235)), (65 * s if big else 35 * s, (160, 160, 170))):

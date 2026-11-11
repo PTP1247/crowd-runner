@@ -2,24 +2,25 @@
   "name": "Level 10 - Final Stand",
   "start_count": 20,
   "speed": 410,
+  "boss": {"kind": 9, "count": 800},
   "finish_z": 8000,
   "objects": [
     {"type": "gate_pair", "z": 700,  "left": ["+", 20], "right": ["x", 2]},
-    {"type": "obstacle",  "z": 900,  "x": 0,   "width": 100, "damage": 20},
+    {"type": "obstacle",  "z": 900,  "x": 0,   "width": 100},
     {"type": "gate_pair", "z": 1150, "left": ["x", 2],  "right": ["-", 10]},
-    {"type": "obstacle",  "z": 1600, "x": -75, "width": 150, "damage": 30},
+    {"type": "obstacle",  "z": 1600, "x": -75, "width": 150},
     {"type": "gate_pair", "z": 2050, "left": ["-", 20], "right": ["x", 3]},
     {"type": "enemy",     "z": 2500, "count": 80},
     {"type": "gate_pair", "z": 2950, "left": ["x", 2],  "right": ["/", 2]},
-    {"type": "obstacle",  "z": 3400, "x": 0,   "width": 150, "damage": 60},
+    {"type": "obstacle",  "z": 3400, "x": 0,   "width": 150},
     {"type": "gate_pair", "z": 3850, "left": ["+", 100],"right": ["x", 2]},
-    {"type": "obstacle",  "z": 4300, "x": 75,  "width": 150, "damage": 120},
+    {"type": "obstacle",  "z": 4300, "x": 75,  "width": 150},
     {"type": "gate_pair", "z": 4750, "left": ["x", 3],  "right": ["-", 100]},
     {"type": "enemy",     "z": 5200, "count": 300},
     {"type": "gate_pair", "z": 5650, "left": ["/", 3],  "right": ["x", 2]},
-    {"type": "obstacle",  "z": 6100, "x": 0,   "width": 150, "damage": 150},
+    {"type": "obstacle",  "z": 6100, "x": 0,   "width": 150},
     {"type": "gate_pair", "z": 6550, "left": ["x", 2],  "right": ["+", 300]},
-    {"type": "obstacle",  "z": 6900, "x": 0,   "width": 100, "damage": 20},
-    {"type": "enemy",     "z": 7300, "count": 3600}
+    {"type": "obstacle",  "z": 6900, "x": 0,   "width": 100},
+    {"type": "enemy",     "z": 7300, "count": 2800}
   ]
 }

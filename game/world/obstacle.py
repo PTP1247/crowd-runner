@@ -1,9 +1,9 @@
 """สิ่งกีดขวางระหว่างประตู ลดจำนวนคน (จำเป็นสำหรับระดับ 1)   [เจ้าของ: B]"""
 import pygame
-import config as C
+from game.core import config as C
 import random
 import math
-import sprites
+from game.core import sprites
 
 HEIGHT = 25                 # สูงกี่ unit (วาดอย่างเดียว ไม่มีผลกับการชน)
 DEPTH = 18                  # หนากี่ unit ตามแกน z
@@ -27,10 +27,9 @@ PATTERNS = [("still", 0, 0), ("slow", 1.0, 1.8), ("fast", 2.2, 3.2)]
 
 
 class Obstacle:
-    def __init__(self, x, z, width, damage):
+    def __init__(self, x, z, width):
         self.x, self.z = x, z
         self.width = width
-        self.damage = damage        # ไม่ได้ใช้แล้ว: คนที่ทับสิ่งกีดขวางหายหมด (ดู on_reach)
         self.used = False
         self.start_x = x
         self.amplitude = 0          # แกว่งซ้าย-ขวาได้ไกลแค่ไหนจาก start_x (0 = นิ่ง)

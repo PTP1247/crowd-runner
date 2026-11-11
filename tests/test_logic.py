@@ -8,14 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gate import Gate
-from crowd import Crowd
-from obstacle import Obstacle
-from enemy import EnemyGroup
-import config as C
-import scores
-from gate import GatePair
-from level import (load_level, list_levels, best_count, build_object,
+from game.world.gate import Gate
+from game.world.crowd import Crowd
+from game.world.obstacle import Obstacle
+from game.world.enemy import EnemyGroup
+from game.core import config as C
+from game.core import scores
+from game.world.gate import GatePair
+from game.world.level import (load_level, list_levels, best_count, build_object,
                    run_count, fatal_gates, max_wrong_picks, difficulty,
                    dodge_spans, obstacle_style)
 
@@ -28,13 +28,13 @@ def test_gate_ops():
 
 
 def test_obstacle_hit_and_miss():
-    # กติกาของ B (branch dew): คนที่อยู่ในความกว้างของสิ่งกีดขวางหายหมด, damage ไม่ถูกใช้แล้ว
+    # กติกา: คนที่อยู่ในความกว้างของสิ่งกีดขวางหายหมด
     crowd = Crowd(20)
     crowd.x = 75
-    Obstacle(-75, 100, 150, 5).on_reach(crowd)    # อยู่คนละฝั่ง ไม่โดน
+    Obstacle(-75, 100, 150).on_reach(crowd)       # อยู่คนละฝั่ง ไม่โดน
     assert crowd.count == 20
     crowd.x = -75
-    Obstacle(-75, 100, 150, 5).on_reach(crowd)    # ทั้งก้อนอยู่ในช่วงพอดี โดนหมด
+    Obstacle(-75, 100, 150).on_reach(crowd)       # ทั้งก้อนอยู่ในช่วงพอดี โดนหมด
     assert crowd.count == 0
 
 
@@ -75,8 +75,27 @@ def test_enemy_fight_is_gradual():
     assert t <= C.FIGHT_TIME                                     # จบในเวลาที่ตั้งไว้
 
 
+def test_boss_fight_lasts_boss_fight_time():
+    """บอสทุกตัว: ตั้งแต่ตีกันจริงจนจบใช้เวลาราว BOSS_FIGHT_TIME (บอสเล็กเลือดน้อยก็ไม่จบเร็วกว่า)"""
+    from game.world.boss import Boss, STYLES
+    for kind in STYLES:
+        for hp in (60, 800):
+            crowd = Crowd(hp * 3)
+            boss = Boss(1000, hp, kind=kind)
+            boss.on_reach(crowd)
+            while boss.approaching:                  # ช่วงเดิน/วิ่งเข้ามา เลือดยังไม่ลด
+                boss.update(1 / 60)
+            assert boss.count == hp
+            t = 0
+            while boss.fighting:
+                boss.update(1 / 60)
+                t += 1 / 60
+            assert crowd.count == hp * 2 and boss.lost == hp
+            assert C.BOSS_FIGHT_TIME - 0.1 <= t <= C.BOSS_FIGHT_TIME + 0.05, (kind, hp, t)
+
+
 def test_boss_behind_finish_and_fights_like_enemy():
-    from boss import Boss
+    from game.world.boss import Boss
     level = load_level("level2.json")
     assert isinstance(level.boss, Boss) and level.boss.count == 60
     assert level.boss.z == level.finish_z + C.FINISH_DEPTH      # ปะทะเมื่อคนท้ายสุดพ้นแถบเส้นชัย
@@ -99,7 +118,7 @@ def test_boss_behind_finish_and_fights_like_enemy():
 
 
 def test_enemy_rushes_at_crowd():
-    from boss import Boss
+    from game.world.boss import Boss
     crowd = Crowd(50)
     crowd.z, crowd.x = 1000, 100
     far = EnemyGroup(1000 + C.ENEMY_RUSH_DIST + 50, 30)
@@ -110,7 +129,7 @@ def test_enemy_rushes_at_crowd():
     for _ in range(frames):
         enemy.rush(crowd, 1 / 60)
     assert enemy.rushing and enemy.z == crowd.z                # วิ่งมาถึงตัว แต่ไม่ทะลุเลยกลุ่มคน
-    assert abs(enemy.x - crowd.x) < 5                          # ตามซ้าย-ขวาทัน หลบไม่ได้
+    assert enemy.x == 0 and abs(crowd.x) < 5                   # กลุ่มคนถูกดึงเข้าหาศัตรู หลบไม่ได้
     enemy.on_reach(crowd)
     assert enemy.fighting and not enemy.rushing
     boss = Boss(1000, 30)
@@ -122,7 +141,7 @@ def test_enemy_group_same_size_as_crowd():
     """กองศัตรู N คนต้องกว้างเท่ากลุ่มคนเรา N คน (วัดจากฟิสิกส์จริง ถ้าแก้ฟิสิกส์ต้องวัด _RADIUS_TABLE ใหม่)"""
     import math
     import random
-    from crowd import blob_radius
+    from game.world.crowd import blob_radius
     random.seed(3)
     for count in (10, 100, 1000):
         crowd = Crowd(count)
@@ -150,7 +169,7 @@ def test_crowd_front_and_back():
 
 
 def test_boss_too_strong_loses():
-    from boss import Boss
+    from game.world.boss import Boss
     crowd = Crowd(30)
     boss = Boss(1000, 80)
     boss.on_reach(crowd)
@@ -159,7 +178,7 @@ def test_boss_too_strong_loses():
 
 
 def test_ninja_boss_runs_in_before_fighting():
-    from boss import Boss, STYLES
+    from game.world.boss import Boss, STYLES
     crowd = Crowd(100)
     crowd.z = 1000
     boss = Boss(1000, 40, kind=5)
@@ -403,16 +422,29 @@ def test_unlock_needs_previous_win():
     assert not scores.is_unlocked(files, 2, won1)              # ข้ามด่านไม่ได้
 
 
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_"):
-            fn()
-            print("PASS", name)
-
-
 def test_star_thresholds_match_stars():
     for best in (1, 7, 155, 2880):
         two, three = scores.thresholds(best)
         assert scores.stars(True, two, best) >= 2 and scores.stars(True, three, best) == 3
         assert two == 1 or scores.stars(True, two - 1, best) < 2      # น้อยกว่านี้ 1 คนไม่ได้
         assert three == 1 or scores.stars(True, three - 1, best) < 3
+
+
+def test_final_boss_never_repeats_an_attack():
+    """บอสสุดท้าย: สุ่มท่าโจมตี 4 แบบ ห้ามเล่นท่าเดิมซ้ำติดกัน และได้เล่นครบทุกท่า"""
+    from game.world.boss import Boss, STYLES
+    boss = Boss(1000, 800, kind=9)
+    played = []
+    for _ in range(60 * 60):                 # เล่นท่าต่อกัน 1 นาที (ปะทะจริงจบเร็วกว่านี้)
+        boss.next_move_frame(1 / 60)
+        if boss.move and (not played or played[-1] != boss.move):
+            played.append(boss.move)
+    assert all(a != b for a, b in zip(played, played[1:]))
+    assert set(played) == set(STYLES[9]["moves"])
+
+
+if __name__ == "__main__":      # ต้องอยู่ท้ายไฟล์: test ที่อยู่ใต้บล็อกนี้จะยังไม่ถูกสร้าง
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print("PASS", name)

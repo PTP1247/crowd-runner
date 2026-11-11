@@ -1,6 +1,6 @@
 """ประตูเปลี่ยนจำนวนคน   [เจ้าของ: B]"""
 import pygame
-import config as C
+from game.core import config as C
 
 # ตัวดำเนินการที่รองรับ: ใช้ในไฟล์ด่าน JSON เป็น "+", "-", "x", "/"
 SYMBOLS = {"+": "+", "-": "-", "x": "×", "/": "÷"}

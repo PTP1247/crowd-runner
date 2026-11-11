@@ -2,14 +2,14 @@
 
 import math
 import random
-from pathlib import Path
 
 import pygame
-import config as C
-import sprites
+from game.core import config as C
+from game.core import sprites
 
-ASSET_DIR = Path(__file__).resolve().parent / "assets" / "16x32"
-ATTACK_ROW = 4       # แถวล่างสุดของ Attack-Sheet: ต่อยแบบหันหลังให้กล้อง (หันเข้าหาศัตรู/บอส)
+RUN_STRAIGHT_ROW = 4 # ชีต Run แถวล่างสุด: วิ่งตรงขึ้นไป หันหลังให้กล้อง
+RUN_RIGHT_ROW = 3    # ชีต Run แถวรองล่างสุด: วิ่งเฉียงขึ้นขวา
+ATTACK_ROW = 4      # แถวล่างสุดของ Attack-Sheet: ต่อยแบบหันหลังให้กล้อง (หันเข้าหาศัตรู/บอส)
 ATTACK_SPEED = 1.2   # anim_t เดินราว 10/วินาที -> ท่าต่อย ~12 เฟรม/วินาที
 
 # รัศมีที่ 90% ของคนในก้อนอยู่ข้างใน ตามจำนวน "คนจำลอง" (ไม่เกิน SIM_PEOPLE)
@@ -56,72 +56,15 @@ class Crowd:
         self._count = 0           # จำนวนคนจริง อาจมากกว่า len(people) มาก
         self.sprite_cache = {}    # (เฟรม, กว้าง, สูง) -> ภาพที่ย่อแล้ว
         self.attacking = False    # main.py ตั้งเป็น True ระหว่างปะทะศัตรู/บอส: วาดท่าต่อยแทนท่าวิ่ง
+        self.waiting = False      # main.py ตั้งเป็น True ตอนบอสกำลังวิ่งเข้ามา: ยืนรอ (ยังไม่ต่อย)
+        self.last_x = None        # x ของเฟรมที่แล้ว ใช้คิดความเร็วเลี้ยว
+        self.crowd_vx = 0.0       # ความเร็วเลี้ยวจริง (เลือกท่าวิ่งตรง / เฉียงซ้าย / เฉียงขวา)
 
-        # ==========================================
-        # 1. ส่วนค้นหาและโหลดไฟล์ภาพ (ของคุณ Setthawut เดิม)
-        # ==========================================
-        # สร้างภาพสำรอง (สีเขียว) กรณีหาไฟล์ไม่เจอ (ปรับขนาดให้ตรงกับ 6 เฟรม 5 แถว)
-        dummy = pygame.Surface((16 * 6, 32 * 5), pygame.SRCALPHA)
-        pygame.draw.rect(dummy, (0, 255, 0), (0, 0, 16 * 6, 32 * 5))
-        self.sheet_straight = dummy
-
-        candidates = [
-            ASSET_DIR / "Run-Sheet.png",
-            ASSET_DIR / "Run.png",
-            ASSET_DIR / "16x32 Run-Sheet.png",
-            ASSET_DIR / "16x32 Run.png",
-            Path("assets/16x32/Run-Sheet.png"),
-            Path("assets/16x32/Run.png"),
-        ]
-        
-        for candidate in candidates:
-            try:
-                if candidate.exists():
-                    loaded = pygame.image.load(str(candidate)).convert_alpha()
-                    self.sheet_straight = loaded
-                    break
-            except (pygame.error, FileNotFoundError, OSError):
-                continue
-
-        # ==========================================
-        # 2. ส่วนหั่นภาพ 5 แถวและกลับด้านภาพ (โค้ดใหม่ที่เพิ่งเพิ่มเข้ามา)
-        # ==========================================
-        self.total_columns = 6  # จำนวนเฟรมแนวนอน (6 เฟรม)
-        self.total_rows = 5     # จำนวนทิศทางแนวตั้ง (5 แถว)
-        
-        orig_w, orig_h = self.sheet_straight.get_size()
-        self.frame_width = orig_w // self.total_columns
-        self.frame_height = orig_h // self.total_rows
-        
-        # ระบุว่าทิศทางไหนอยู่แถวอะไร (เริ่มนับจาก 0)
-        ROW_STRAIGHT = 4  # แถวล่างสุด: ท่าวิ่งตรง (วิ่งขึ้น หันหลังให้กล้อง)
-        ROW_RIGHT = 3     # แถวรองล่างสุด: ท่าวิ่งขวา (ท่าเฉียงขึ้นขวา)
-
-        self.frames_straight = []
-        self.frames_left = []
-        self.frames_right = []
-        self.total_frames = self.total_columns
-        
-        # เริ่มหั่นภาพและพลิกภาพ!
-        for i in range(self.total_frames):
-            x_pos = i * self.frame_width
-            
-            # หั่นภาพ: ท่าวิ่งตรง
-            rect_s = pygame.Rect(x_pos, ROW_STRAIGHT * self.frame_height, self.frame_width, self.frame_height)
-            self.frames_straight.append(self.sheet_straight.subsurface(rect_s))
-            
-            # หั่นภาพ: ท่าวิ่งขวา
-            rect_r = pygame.Rect(x_pos, ROW_RIGHT * self.frame_height, self.frame_width, self.frame_height)
-            frame_right = self.sheet_straight.subsurface(rect_r)
-            self.frames_right.append(frame_right)
-            
-            # สร้างภาพ: ท่าวิ่งซ้าย (เอาภาพวิ่งขวามาพลิกด้าน)
-            frame_left = pygame.transform.flip(frame_right, True, False)
-            self.frames_left.append(frame_left)
-            
-        # ==========================================
-        # 3. สร้างจำนวนคนเริ่มต้น
-        # ==========================================
+        # ท่าวิ่งจากชีต Run: แถว 4 = วิ่งตรง (หันหลังให้กล้อง), แถว 3 = วิ่งเฉียงขวา, เฉียงซ้าย = กลับด้านแถว 3
+        self.frames_straight = sprites.frames("Run", RUN_STRAIGHT_ROW)
+        self.frames_right = sprites.frames("Run", RUN_RIGHT_ROW)
+        self.frames_left = [pygame.transform.flip(f, True, False) for f in self.frames_right]
+        self.total_frames = len(self.frames_straight)
         self.set_count(count)
 
 
@@ -221,15 +164,11 @@ class Crowd:
         limit = max(0.0, C.ROAD_HALF_W - self.radius())
         self.x = max(-limit, min(limit, self.x))
         
-        # 📌 3. คำนวณความเร็วเลี้ยวที่แท้จริง (เทียบกับตำแหน่งของเฟรมที่แล้ว!)
-        if hasattr(self, 'last_x') and dt > 0:
-            self.crowd_vx = (self.x - self.last_x) / dt 
-        else:
-            self.crowd_vx = 0.0
-            
-        self.last_x = self.x  # เซฟตำแหน่งปัจจุบันไว้ใช้ในเฟรมถัดไป
+        # 2. ความเร็วเลี้ยวจริง (เทียบกับตำแหน่งเฟรมที่แล้ว) ใช้เลือกท่าวิ่งตอนวาด
+        self.crowd_vx = (self.x - self.last_x) / dt if self.last_x is not None and dt > 0 else 0.0
+        self.last_x = self.x
 
-        # --- โค้ดฟิสิกส์ด้านล่าง ปล่อยให้มันทำงานตามเดิมเลยครับ ---
+        # 3. ฟิสิกส์คนตัวแทน: ดึงเข้าหาศูนย์กลาง + ผลักคนที่ชิดเกินไป + ส่ายเล็กน้อย
         target_r = C.PERSON_SPACING * 0.8
         for p in self.people:
             fx = fz = 0.0
@@ -271,10 +210,8 @@ class Crowd:
         for p in sorted(self.people[:C.MAX_DRAWN_PEOPLE], key=lambda p: -p.dz):
             sx, sy, scale = camera.project(self.x + p.dx * k, self.z + p.dz * k)
             
-            # 📌 1. เลือก "กลุ่มลิ้นชักภาพที่หั่นไว้แล้ว" ตามทิศทางการวิ่ง
-             # ในฟังก์ชัน draw
-            # ใช้ความเร็วเลี้ยวรวมของกลุ่ม (crowd_vx) เป็นตัวตัดสินใจ
-            if getattr(self, "waiting", False):
+            # 1. เลือกชุดท่า: ยืนรอบอส / ต่อย / วิ่ง (ตรง หรือเฉียงตามความเร็วเลี้ยว crowd_vx)
+            if self.waiting:
                 # บอสกำลังวิ่งเข้ามา: ยืนรอ (หันหลังให้กล้องเหมือนตอนต่อย)
                 current_frames = sprites.frames("Idle", ATTACK_ROW)
                 frame_index = int(p.anim_t * ATTACK_SPEED) % len(current_frames)
@@ -283,19 +220,16 @@ class Crowd:
                 current_frames = sprites.frames("Attack", ATTACK_ROW)
                 frame_index = int(p.anim_t * ATTACK_SPEED) % len(current_frames)
             else:
-                if getattr(self, 'crowd_vx', 0) < -50:
+                if self.crowd_vx < -50:
                     current_frames = self.frames_left
-                elif getattr(self, 'crowd_vx', 0) > 50:
+                elif self.crowd_vx > 50:
                     current_frames = self.frames_right
                 else:
                     current_frames = self.frames_straight
-                # 📌 2. คำนวณเฟรมภาพที่ต้องดึงมาแสดงผล (วนลูป 0 ถึง 5)
                 frame_index = int(p.anim_t) % self.total_frames
-
-            # 📌 3. หยิบภาพที่ตัดไว้แล้วออกมาจากลิ้นชักได้เลย (ไม่ต้องตัดใหม่แล้ว!)
             frame_surface = current_frames[frame_index]
 
-            # 📌 4. ย่อ/ขยายรูปภาพตัวละครตามระยะลึก (3D Scale)
+            # 2. ย่อ/ขยายตามระยะลึก (scale จาก camera.project)
             new_w = max(1, int(frame_surface.get_width() * scale))
             new_h = max(1, int(frame_surface.get_height() * scale))
             # ย่อภาพครั้งเดียวต่อขนาด แล้วเก็บไว้ใช้ซ้ำ (scale ทุกคนทุกเฟรมกินเวลามาก)
@@ -306,10 +240,8 @@ class Crowd:
                     self.sprite_cache.clear()
                 scaled_sprite = self.sprite_cache[key] = pygame.transform.scale(frame_surface, (new_w, new_h))
             
-            # 📌 5. คำนวณจังหวะตัวเด้ง (Bobbing) ขึ้นลง
+            # 3. ตัวเด้งขึ้นลงตามจังหวะวิ่ง แล้ววาด (เท้าอยู่ที่ sy)
             bob = math.sin(p.anim_t) * 1.5 * scale
-            
-            # 📌 6. แปะภาพตัวละครลงหน้าจอ
             screen.blit(scaled_sprite, (sx - new_w // 2, sy - new_h + bob))
 
         # --- วาดกล่องตัวเลขแสดงจำนวนคนด้านบน ---
