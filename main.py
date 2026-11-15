@@ -6,6 +6,7 @@ State machine:  MENU --(เลือกด่าน: space/enter/คลิก)--
                                                          +--(คนเหลือ 0)--> LOSE
                 PLAYING --(P / Esc)--> PAUSED --(Esc / P)--> PLAYING,  --(M)--> MENU
                 MENU --(ปุ่ม Music & Sound)--> SETTINGS --(Esc / คลิกนอกแผ่น)--> MENU
+                MENU --(ปุ่ม Reset scores)--> CONFIRM --(Reset: ลบคะแนน / Cancel / Esc)--> MENU
                 WIN --(R)--> PLAYING ด่านเดิม,  --(Enter)--> ด่านถัดไป (ชนะ) / เล่นใหม่ (แพ้),  --(M)--> MENU
 """
 import sys
@@ -29,7 +30,8 @@ from game.world import trees
 
 MENU, PLAYING, PAUSED, WIN, LOSE = "menu", "playing", "paused", "win", "lose"
 SETTINGS = "settings"     # หน้าปรับเสียงที่เปิดจากเมนู
-SOUND_ITEM = "sound"      # ในเมนู: ไฮไลต์อยู่ที่ปุ่ม Music & Sound (ต่อท้ายรายการด่าน)
+CONFIRM = "confirm"       # ถามยืนยันก่อนลบคะแนนทั้งหมด (ปุ่ม Reset scores)
+MENU_KEYS_SIDE = (pygame.K_LEFT, pygame.K_a, pygame.K_RIGHT, pygame.K_d)   # เมนู/แผ่นยืนยัน: สลับปุ่มซ้าย-ขวา
 PAUSE_LEFT = (pygame.K_LEFT, pygame.K_a)       # หน้าหยุดเกม/หน้าปรับเสียง: ลดความดัง
 PAUSE_RIGHT = (pygame.K_RIGHT, pygame.K_d)     # เพิ่มความดัง
 PAUSE_STEP = 0.1          # กดหนึ่งครั้ง = 10%
@@ -67,7 +69,8 @@ class Game:
         self.level_tiers = [ui.difficulty_tier(difficulty(lv)) for lv in plain]
         self.selected = 0                       # index ด่านที่เลือกในเมนู
         self.scores = scores.load_scores()
-        self.menu_button = False                # เมนู: ไฮไลต์อยู่ที่ปุ่ม Music & Sound (ไม่ใช่แถวด่าน)
+        self.menu_button = None                 # เมนู: ไฮไลต์อยู่ที่ปุ่มไหน "sound"/"reset" (None = แถวด่าน)
+        self.confirm_focus = 0                  # แผ่นยืนยันลบคะแนน: 0 = Cancel, 1 = Reset
         self.pause_focus = 0                    # หน้าหยุดเกม/หน้าปรับเสียง: แถวที่เลือก (0 = Music, 1 = Effect)
         self.pause_drag = None                  # กำลังลากสไลเดอร์แถวไหนด้วยเมาส์
         self.pause_hold = 0.0                   # กดซ้าย/ขวาค้างมานานเท่าไร (ค้างนานแล้วเลื่อนต่อเนื่อง)
@@ -199,6 +202,8 @@ class Game:
                 self.handle_pause_mouse(event)
             elif self.state == MENU and event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
                 self.handle_menu_mouse(event)
+            elif self.state == CONFIRM and event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
+                self.handle_confirm_mouse(event)
         if self.state in (PAUSED, SETTINGS):
             self.hold_pause_keys()
 
@@ -224,8 +229,15 @@ class Game:
                 self.move_selection(-1)
             elif key in (pygame.K_DOWN, pygame.K_s):
                 self.move_selection(1)
+            elif key in MENU_KEYS_SIDE and self.menu_button:   # อยู่ที่ปุ่มล่าง: ซ้าย/ขวา สลับสองปุ่ม
+                self.menu_button = "reset" if self.menu_button == "sound" else "sound"
             elif key in (pygame.K_SPACE, pygame.K_RETURN):
-                self.open_settings() if self.menu_button else self.start_level()
+                if self.menu_button == "sound":
+                    self.open_settings()
+                elif self.menu_button == "reset":
+                    self.open_confirm()
+                else:
+                    self.start_level()
             elif key == pygame.K_u:                    # ปุ่มลับไว้ทดสอบ/โชว์ (ไม่มีคำแนะนำบนจอ)
                 self.unlock_all = not self.unlock_all
                 if not self.unlocked(self.selected):   # ปิดแล้วด่านที่เลือกอยู่ล็อก กลับไปด่านแรก
@@ -249,6 +261,14 @@ class Game:
             # หน้าปรับเสียงจากเมนู: ปุ่มเหมือนหน้าหยุดเกม  Esc/Backspace = กลับเมนู ("Press ESC to go back")
             if not self.sound_key(key) and key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
                 self.close_sound_panel(MENU)
+        elif self.state == CONFIRM:
+            # ถามยืนยันลบคะแนน: ซ้าย/ขวา (A/D) เลือก, Enter/Space ยืนยันปุ่มที่เลือก, Esc/Backspace = ยกเลิก
+            if key in MENU_KEYS_SIDE:
+                self.confirm_focus = 1 - self.confirm_focus
+            elif key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                self.close_confirm(self.confirm_focus == 1)
+            elif key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+                self.close_confirm(False)
         elif self.state in (WIN, LOSE):
             if key == pygame.K_r and self.state == WIN:   # แพ้: ไม่มี R (Enter = เล่นใหม่)
                 self.start_level()
@@ -283,6 +303,31 @@ class Game:
         self.pause_drag = None
         self.state = SETTINGS
 
+    def open_confirm(self):
+        """ปุ่ม Reset scores ในเมนู -> ถามยืนยันก่อน (เริ่มที่ Cancel กันกด Enter พลาด)"""
+        self.confirm_focus = 0
+        self.state = CONFIRM
+
+    def close_confirm(self, do_reset):
+        """ปิดแผ่นยืนยัน  do_reset: ลบคะแนนทั้งหมด -> ดาว/high score หาย ด่าน 2 ขึ้นไปล็อกใหม่ กลับไปเลือกด่านแรก"""
+        if do_reset:
+            self.scores = scores.reset_scores()
+            self.selected = 0
+        self.state = MENU
+
+    def handle_confirm_mouse(self, event):
+        """เมาส์ในแผ่นยืนยัน: ชี้ปุ่ม = ไฮไลต์, คลิกปุ่ม = เลือก, คลิกนอกแผ่น = ยกเลิก"""
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button != 1:
+            return
+        for i, rect in enumerate(ui.confirm_buttons()):
+            if rect.collidepoint(event.pos):
+                self.confirm_focus = i
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    self.close_confirm(i == 1)
+                return
+        if event.type == pygame.MOUSEBUTTONDOWN and not ui.CONFIRM_PANEL.collidepoint(event.pos):
+            self.close_confirm(False)
+
     def close_sound_panel(self, state):
         """ออกจากหน้าหยุดเกม/หน้าปรับเสียง: บันทึกค่าเสียงลงไฟล์ แล้วไปหน้า state"""
         sound.save_settings()
@@ -303,18 +348,19 @@ class Game:
 
     def handle_menu_mouse(self, event):
         """เมาส์ในเมนูเลือกด่าน: ชี้แถว = เลือก (ไฮไลต์), คลิกซ้าย = เริ่มด่านนั้น  ด่านที่ล็อกอยู่ไม่ตอบสนอง
-        ปุ่ม Music & Sound: ชี้ = ไฮไลต์, คลิก = เปิดหน้าปรับเสียง"""
+        ปุ่ม Music & Sound / Reset scores: ชี้ = ไฮไลต์, คลิก = เปิดหน้าปรับเสียง / ถามยืนยันลบคะแนน"""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button != 1:
             return
-        if ui.SOUND_BUTTON.collidepoint(event.pos):
-            self.menu_button = True
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                self.open_settings()
-            return
+        for name, rect in ui.MENU_BUTTONS.items():
+            if rect.collidepoint(event.pos):
+                self.menu_button = name
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    self.open_settings() if name == "sound" else self.open_confirm()
+                return
         for i in range(len(self.level_files)):
             if ui.menu_row_rect(i).collidepoint(event.pos) and self.unlocked(i):
                 self.selected = i
-                self.menu_button = False
+                self.menu_button = None
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     self.start_level()
                 return
@@ -364,12 +410,15 @@ class Game:
         return self.unlock_all or scores.is_unlocked(self.level_files, i, self.scores)
 
     def move_selection(self, step):
-        """เลื่อนไปแถวถัดไปในเมนู: ด่านที่ปลดล็อกแล้ว (ข้ามด่านที่ล็อก) แล้วปุ่ม Music & Sound ท้ายสุด วนรอบได้"""
-        items = [i for i in range(len(self.level_files)) if self.unlocked(i)] + [SOUND_ITEM]
-        now = SOUND_ITEM if self.menu_button else self.selected
+        """เลื่อนไปแถวถัดไปในเมนู: ด่านที่ปลดล็อกแล้ว (ข้ามด่านที่ล็อก) แล้วปุ่ม Music & Sound, Reset scores
+        ท้ายสุด วนรอบได้"""
+        items = [i for i in range(len(self.level_files)) if self.unlocked(i)] + list(ui.MENU_BUTTONS)
+        now = self.menu_button or self.selected
         nxt = items[(items.index(now) + step) % len(items)]
-        self.menu_button = nxt == SOUND_ITEM
-        if not self.menu_button:
+        if isinstance(nxt, str):
+            self.menu_button = nxt
+        else:
+            self.menu_button = None
             self.selected = nxt
 
     def start_level(self):
@@ -670,13 +719,15 @@ class Game:
         self.effects.draw(self.screen, cam)             # ประกายหมัดวาดทับทุกอย่าง
 
     def draw(self):
-        if self.state in (MENU, SETTINGS):
+        if self.state in (MENU, SETTINGS, CONFIRM):
             unlocked = [self.unlocked(i) for i in range(len(self.level_files))]
             sound_on = any(c["on"] for c in sound.settings.values())
             ui.draw_menu(self.screen, self.big_font, self.font, self.level_names, self.selected, self.scores,
                          unlocked, self.level_tiers, self.menu_button, sound_on)
             if self.state == SETTINGS:
                 ui.draw_sound_settings(self.screen, self.big_font, self.font, sound.settings, self.pause_focus)
+            elif self.state == CONFIRM:
+                ui.draw_confirm_reset(self.screen, self.big_font, self.font, self.confirm_focus)
         else:
             self.draw_world()
             sx, sy, scale = self.camera.project(self.crowd.x, self.crowd.z)
@@ -709,7 +760,7 @@ class Game:
         """เพลงของหน้าจอตอนนี้: เมนู -> "menu", วิ่ง/หยุดเกม -> "game",
         บอสกับกลุ่มคนตีกันแล้ว -> "boss" (ค้างไว้ถึงจบด่าน ไม่สลับกลับตอนบอสแพ้ก่อนขึ้นหน้าชนะ)
         จบด่าน -> None ค่อยๆ เงียบ ให้ได้ยินเสียงชนะ/แพ้ชัดๆ"""
-        if self.state in (MENU, SETTINGS):
+        if self.state in (MENU, SETTINGS, CONFIRM):
             return "menu"
         if self.state in (WIN, LOSE):
             return None

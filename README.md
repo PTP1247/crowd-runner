@@ -27,7 +27,7 @@ python -m pytest            # if pytest is installed
 python tests/test_logic.py  # works without pytest
 ```
 
-There are 34 tests. They need no window and check the game rules, the level design rules and the boss logic.
+There are 35 tests. They need no window and check the game rules, the level design rules and the boss logic.
 
 ---
 
@@ -37,6 +37,7 @@ There are 34 tests. They need no window and check the game rules, the level desi
 |---|---|---|
 | Level menu | Up/Down (W/S) + Space/Enter, or **click a level** | Choose and start a level (hover highlights it) |
 | Level menu | Down past the last level + Enter, or **click "Music & Sound"** | Open the sound settings (same sliders/boxes as the pause screen; Esc, Backspace or a click outside the panel goes back) |
+| Level menu | Down to the buttons, Left/Right (A/D) to switch, Enter, or **click "Reset scores"** | Asks "RESET?" first: Left/Right + Enter or click **Reset** deletes all stars and high scores (levels 2–10 lock again); **Cancel** (the default), Esc or a click outside keeps them |
 | Level menu | U (hidden, no on-screen hint) | Unlock all levels temporarily (testing/demo, not saved) |
 | Playing | Left/Right or A/D | Steer the crowd |
 | Playing | P or Esc | Pause |
@@ -137,6 +138,7 @@ MENU ──(choose a level)──▶ PLAYING ──(whole crowd crosses the fini
                               └──(P / Esc)──▶ PAUSED ──(Esc / P)──▶ PLAYING
 PAUSED / WIN / LOSE ──(M)──▶ MENU        WIN ──(R / Enter)──▶ PLAYING      LOSE ──(Enter)──▶ PLAYING
 MENU ──("Music & Sound" button)──▶ SETTINGS ──(Esc / click outside)──▶ MENU
+MENU ──("Reset scores" button)──▶ CONFIRM ──(Reset: delete scores / Cancel / Esc)──▶ MENU
 ```
 
 **Game loop** (`run`): every frame → `clock.tick(60)` gives `dt` (seconds, capped at 0.05 so a lag spike
@@ -149,7 +151,8 @@ Important methods:
 | `__init__` | Opens the window, builds procedural textures (brick road, grass tufts, clouds, trees), loads the level list once (names + difficulty tiers for the menu) |
 | `reset` | Loads the selected level **with randomization**, computes `best` (for stars), creates the `Crowd`, `Effects`, scenery |
 | `handle_events` / `handle_key` | Keyboard per state; steering is ignored while `crowd_locked()` |
-| `move_selection` | Up/Down in the menu: cycles through unlocked levels, then the "Music & Sound" button, and wraps |
+| `move_selection` | Up/Down in the menu: cycles through unlocked levels, then the "Music & Sound" and "Reset scores" buttons, and wraps |
+| `open_confirm`, `close_confirm`, `handle_confirm_mouse` | The "RESET?" panel: starts on Cancel so a stray Enter can't wipe scores; Reset calls `scores.reset_scores()`, empties `self.scores` and selects level 1 |
 | `handle_menu_mouse`, `handle_pause_mouse`, `hold_pause_keys` | Mouse hover/click in the menu, sliders and boxes in the pause and sound-settings screens, hold-to-slide volume |
 | `sound_key`, `open_settings`, `close_sound_panel` | Keys shared by both sound panels (row, volume, on/off); open the settings screen; save settings and leave |
 | `crowd_locked` | `True` while an enemy is charging or a fight is on (player can't steer) |
@@ -215,8 +218,8 @@ If a file is missing, a grey placeholder is returned so the game never crashes.
 
 `stars(won, count, best)`, `thresholds(best)` (people needed for 2 and 3 stars), `load_scores()`,
 `record()` (keeps the best count **and** the best stars separately, because the random layout changes
-the best possible count every run) and `is_unlocked()`. A missing or broken `highscores.json` simply
-starts fresh.
+the best possible count every run), `reset_scores()` (deletes `highscores.json`; used by the menu's
+"Reset scores" button) and `is_unlocked()`. A missing or broken `highscores.json` simply starts fresh.
 
 ### 5.7 `game/world/crowd.py` — the player's crowd
 
@@ -327,8 +330,9 @@ depth-sorted together with the road objects.
 ### 5.15 `game/ui.py` — screens
 
 `draw_menu` (background picture, see-through level rows with difficulty bars, stars, best count, locks,
-mouse/keyboard highlight, and the "Music & Sound" button with a speaker icon that shows ✕ when all
-sound is off), `draw_hud` (level name and progress bar), `draw_sound_panel` + `pause_layout` (title,
+mouse/keyboard highlight, and two buttons drawn by `draw_button`: "Music & Sound" with a speaker icon
+that shows ✕ when all sound is off, and "Reset scores" with a circular-arrow icon), `draw_confirm_reset`
++ `confirm_buttons` (the "RESET?" panel; the Reset button turns red when selected), `draw_hud` (level name and progress bar), `draw_sound_panel` + `pause_layout` (title,
 sliders and on/off boxes; the layout function is shared by drawing and mouse hit-testing so they always
 match), used by both `draw_pause` (adds R/M and "Press ESC to continue") and `draw_sound_settings`
 (the smaller panel opened from the menu, "Press ESC to go back"), `draw_end` (box sized to its lines; over-wide text is shrunk with `fit_text` so nothing overflows),

@@ -1,0 +1,10 @@
+{
+  "music": {
+    "volume": 0.101,
+    "on": true
+  },
+  "effect": {
+    "volume": 0.163,
+    "on": true
+  }
+}
