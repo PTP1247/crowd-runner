@@ -1,5 +1,5 @@
 {
-  "name": "Level 6 - Zigzag Rush",
+  "name": "Level 6",
   "start_count": 12,
   "speed": 370,
   "boss": {"kind": 5, "count": 1800},

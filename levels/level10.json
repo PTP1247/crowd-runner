@@ -1,5 +1,5 @@
 {
-  "name": "Level 10 - Final Stand",
+  "name": "Level 10",
   "start_count": 20,
   "speed": 410,
   "boss": {"kind": 9, "count": 2500},

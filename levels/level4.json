@@ -1,5 +1,5 @@
 {
-  "name": "Level 4 - Greedy Traps",
+  "name": "Level 4",
   "start_count": 15,
   "speed": 330,
   "boss": {"kind": 3, "count": 800},

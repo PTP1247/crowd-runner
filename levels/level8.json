@@ -1,5 +1,5 @@
 {
-  "name": "Level 8 - The Gauntlet",
+  "name": "Level 8",
   "start_count": 40,
   "speed": 380,
   "boss": {"kind": 7, "count": 500},

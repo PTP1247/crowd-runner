@@ -1,5 +1,5 @@
 {
-  "name": "Level 5 - Double Trouble",
+  "name": "Level 5",
   "start_count": 20,
   "speed": 340,
   "boss": {"kind": 4, "count": 275},

@@ -1,5 +1,5 @@
 {
-  "name": "Level 9 - Army March",
+  "name": "Level 9",
   "start_count": 30,
   "speed": 380,
   "boss": {"kind": 8, "count": 200},
