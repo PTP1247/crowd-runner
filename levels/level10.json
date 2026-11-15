@@ -2,7 +2,7 @@
   "name": "Level 10 - Final Stand",
   "start_count": 20,
   "speed": 410,
-  "boss": {"kind": 9, "count": 800},
+  "boss": {"kind": 9, "count": 2500},
   "finish_z": 8000,
   "objects": [
     {"type": "gate_pair", "z": 700,  "left": ["+", 20], "right": ["x", 2]},
@@ -21,6 +21,6 @@
     {"type": "obstacle",  "z": 6100, "x": 0,   "width": 150},
     {"type": "gate_pair", "z": 6550, "left": ["x", 2],  "right": ["+", 300]},
     {"type": "obstacle",  "z": 6900, "x": 0,   "width": 100},
-    {"type": "enemy",     "z": 7300, "count": 2800}
+    {"type": "enemy",     "z": 7300, "count": 1200}
   ]
 }
