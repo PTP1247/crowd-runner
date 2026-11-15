@@ -2,7 +2,7 @@
   "name": "Level 7 - Mental Math",
   "start_count": 30,
   "speed": 370,
-  "boss": {"kind": 6, "count": 425},
+  "boss": {"kind": 6, "count": 500},
   "finish_z": 6600,
   "objects": [
     {"type": "gate_pair", "z": 700,  "left": ["+", 40], "right": ["x", 2]},
