@@ -88,8 +88,18 @@ def draw_meter(screen, midleft, tier, dim_color=None):
         pygame.draw.rect(screen, color, (x + k * 6, cy + 9 - h, 4, h))
 
 
-SOUND_BUTTON = pygame.Rect(0, 0, 250, 44)      # ปุ่ม "Music & Sound" ใต้รายการด่าน -> หน้าปรับเสียง
-SOUND_BUTTON.center = (C.SCREEN_W // 2, 738)
+# ปุ่มสองปุ่มใต้รายการด่าน วางคู่กัน กว้างรวมเท่าแถวด่าน
+BUTTON_W = (C.SCREEN_W - 60 - 8) // 2
+SOUND_BUTTON = pygame.Rect(30, 716, BUTTON_W, 44)                    # "Music & Sound" -> หน้าปรับเสียง
+RESET_BUTTON = pygame.Rect(C.SCREEN_W - 30 - BUTTON_W, 716, BUTTON_W, 44)   # "Reset scores" -> ถามยืนยัน
+MENU_BUTTONS = {"sound": SOUND_BUTTON, "reset": RESET_BUTTON}         # main.py ใช้เช็กเมาส์
+
+
+def draw_reset_icon(screen, center, color=C.WHITE):
+    """ไอคอนลูกศรวนกลับ (เริ่มใหม่): วงเกือบรอบ + หัวลูกศร"""
+    cx, cy = center
+    pygame.draw.arc(screen, color, (cx - 9, cy - 9, 18, 18), 0.6, 5.6, 3)
+    pygame.draw.polygon(screen, color, [(cx + 4, cy - 11), (cx + 12, cy - 6), (cx + 4, cy - 1)])
 
 
 def draw_speaker(screen, center, on, color=C.WHITE):
@@ -106,11 +116,12 @@ def draw_speaker(screen, center, on, color=C.WHITE):
 
 
 def draw_menu(screen, big, small, levels, selected, scores, unlocked, tiers=None,
-              button_active=False, sound_on=True):
+              button=None, sound_on=True):
     """levels: [(ชื่อไฟล์, ชื่อด่าน), ...]   selected: index ที่เลือกอยู่   scores: จาก scores.load_scores()
     unlocked: [True/False ต่อด่าน]  ด่านที่ล็อกวาดเป็นสีเทา + แม่กุญแจ
     tiers: ระดับความยากต่อด่าน 0-3 (จาก difficulty_tier) โชว์เป็นขีดหน้าชื่อ
-    button_active: ไฮไลต์อยู่ที่ปุ่มปรับเสียงแทนแถวด่าน   sound_on: มีเสียงอย่างน้อยหนึ่งช่องเปิดอยู่ไหม (ไอคอน)"""
+    button: ไฮไลต์อยู่ที่ปุ่มไหนแทนแถวด่าน ("sound" / "reset" / None = แถวด่าน)
+    sound_on: มีเสียงอย่างน้อยหนึ่งช่องเปิดอยู่ไหม (ไอคอนลำโพง)"""
     bg = menu_background()
     if bg:
         screen.blit(bg, (0, 0))
@@ -136,7 +147,7 @@ def draw_menu(screen, big, small, levels, selected, scores, unlocked, tiers=None
             screen.blit(label, label.get_rect(midleft=(rect.x + 42, rect.centery)))
             draw_lock(screen, (rect.right - 25, rect.centery), (122, 130, 154))
             continue
-        active = i == selected and not button_active
+        active = i == selected and button is None
         row_fill(screen, rect, (70, 95, 160) if active else (45, 58, 95))
         if active:
             pygame.draw.rect(screen, C.WHITE, rect, 2, border_radius=8)
@@ -154,15 +165,51 @@ def draw_menu(screen, big, small, levels, selected, scores, unlocked, tiers=None
             screen.blit(text, text.get_rect(midright=(rect.right - 10, rect.centery)))
     hint_y = MENU_TOP + len(levels) * MENU_ROW_H + 20
     draw_text_shadow(screen, small, "Click a level or Up/Down + SPACE", hint_y + 34, (225, 230, 245))
-    # ปุ่มไปหน้าปรับเสียง: หน้าตาแบบแถวด่าน (ไฮไลต์เมื่อเลือกด้วยคีย์บอร์ด/เมาส์ชี้)
-    rect = SOUND_BUTTON
-    row_fill(screen, rect, (70, 95, 160) if button_active else (45, 58, 95))
-    if button_active:
+    draw_button(screen, small, SOUND_BUTTON, "Music & Sound", button == "sound",
+                lambda c: draw_speaker(screen, c, sound_on))
+    draw_button(screen, small, RESET_BUTTON, "Reset scores", button == "reset",
+                lambda c: draw_reset_icon(screen, c))
+
+
+def draw_button(screen, small, rect, text, active, icon, fill=(70, 95, 160)):
+    """ปุ่มหน้าตาแบบแถวด่าน (ไฮไลต์ + กรอบขาวเมื่อเลือกด้วยคีย์บอร์ด/เมาส์ชี้)
+    icon(center): ฟังก์ชันวาดไอคอนหน้าตัวหนังสือ (None = ไม่มี)  ไอคอน + ตัวหนังสืออยู่กลางปุ่ม"""
+    row_fill(screen, rect, fill if active else (45, 58, 95))
+    if active:
         pygame.draw.rect(screen, C.WHITE, rect, 2, border_radius=8)
-    label = small.render("Music & Sound", True, C.WHITE)
-    left = rect.centerx - (label.get_width() + 34) // 2      # ไอคอน + ตัวหนังสือ อยู่กลางปุ่ม
-    draw_speaker(screen, (left + 11, rect.centery), sound_on)
-    screen.blit(label, label.get_rect(midleft=(left + 34, rect.centery)))
+    label = small.render(text, True, C.WHITE)
+    icon_w = 30 if icon else 0
+    left = rect.centerx - (label.get_width() + icon_w) // 2
+    if icon:
+        icon((left + 11, rect.centery))
+    screen.blit(label, label.get_rect(midleft=(left + icon_w, rect.centery)))
+
+
+CONFIRM_PANEL = pygame.Rect(0, 0, 400, 270)       # ถามยืนยันก่อนลบคะแนน
+CONFIRM_PANEL.center = (C.SCREEN_W // 2, C.SCREEN_H // 2)
+DANGER = (190, 60, 60)                             # ปุ่ม "Reset" ตอนเลือก: แดง (ลบแล้วกู้คืนไม่ได้)
+
+
+def confirm_buttons():
+    """[ปุ่ม Cancel, ปุ่ม Reset] ในแผ่นยืนยัน (main.py ใช้เช็กเมาส์ ui ใช้วาด)"""
+    w = (CONFIRM_PANEL.w - 36 - 12) // 2
+    y = CONFIRM_PANEL.bottom - 74
+    return [pygame.Rect(CONFIRM_PANEL.x + 18, y, w, 50), pygame.Rect(CONFIRM_PANEL.right - 18 - w, y, w, 50)]
+
+
+def draw_confirm_reset(screen, big, small, focus):
+    """แผ่นถาม "ลบคะแนนทั้งหมด?"  focus: 0 = Cancel (ค่าเริ่มต้น กันกดพลาด), 1 = Reset"""
+    dim(screen, 120)
+    rect = CONFIRM_PANEL
+    panel(screen, rect)
+    pygame.draw.rect(screen, C.WHITE, rect, 3, border_radius=14)
+    draw_text_center(screen, big, "RESET?", rect.y + 50)
+    for k, line in enumerate(("Delete all stars and high scores.", "Levels 2-10 will be locked again.")):
+        surf = fit_text(small, line, MUTED, rect.w - 40)
+        screen.blit(surf, surf.get_rect(center=(rect.centerx, rect.y + 102 + k * 30)))
+    cancel, reset = confirm_buttons()
+    draw_button(screen, small, cancel, "Cancel", focus == 0, None)
+    draw_button(screen, small, reset, "Reset", focus == 1, None, fill=DANGER)
 
 
 def row_fill(screen, rect, color, alpha=215):

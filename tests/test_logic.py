@@ -413,6 +413,18 @@ def test_highscore_keeps_better_stars_with_fewer_people():
     assert scores.load_scores(path)["level1.json"] == {"count": 80, "stars": 3}   # ...แต่ดาวขึ้น
 
 
+def test_reset_scores_deletes_everything():
+    """ปุ่ม Reset scores: ไฟล์คะแนนหาย โหลดใหม่ได้ว่าง ด่าน 2 ล็อกอีกครั้ง  ไม่มีไฟล์อยู่แล้วก็ไม่พัง"""
+    import tempfile
+    path = Path(tempfile.mkdtemp()) / "scores.json"
+    scores.record("level1.json", 80, 3, path)
+    assert scores.is_unlocked(["level1.json", "level2.json"], 1, scores.load_scores(path))
+    assert scores.reset_scores(path) == {}
+    assert not path.exists() and scores.load_scores(path) == {}
+    assert not scores.is_unlocked(["level1.json", "level2.json"], 1, scores.load_scores(path))
+    assert scores.reset_scores(path) == {}                     # ลบซ้ำตอนไม่มีไฟล์: ไม่ error
+
+
 def test_unlock_needs_previous_win():
     files = ["level1.json", "level2.json", "level3.json"]
     assert scores.is_unlocked(files, 0, {})                    # ด่านแรกเปิดเสมอ

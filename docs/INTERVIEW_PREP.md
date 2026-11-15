@@ -13,7 +13,7 @@ practice questions with short model answers.
 
 | Class | File | Responsibility (one sentence) |
 |---|---|---|
-| `Game` | `main.py` | Owns the window, the game loop and the state machine (MENU / SETTINGS / PLAYING / PAUSED / WIN / LOSE); updates and draws everything each frame. |
+| `Game` | `main.py` | Owns the window, the game loop and the state machine (MENU / SETTINGS / CONFIRM / PLAYING / PAUSED / WIN / LOSE); updates and draws everything each frame. |
 | `Camera` | `game/core/camera.py` | Converts world coordinates `(x, z)` to screen coordinates and a scale (pseudo-3D perspective); also does screen shake. |
 | `Crowd` | `game/world/crowd.py` | The player's crowd: real `count`, steering, crowd physics, losing people, drawing with animations. |
 | `Person` | `game/world/crowd.py` | One simulated representative in the crowd: offset from the centre, velocity, animation timer. |
@@ -50,7 +50,8 @@ Every movement is multiplied by `dt`, so the game runs at the same speed at 30 o
 The cap stops a lag spike from moving the crowd through a gate in one frame.
 
 ### 2.2 Finite state machine (`Game.state`)
-MENU → PLAYING → WIN/LOSE, with PAUSED in between, and SETTINGS (sound panel) reachable from MENU.
+MENU → PLAYING → WIN/LOSE, with PAUSED in between, and SETTINGS (sound panel) and CONFIRM
+("Reset scores?" panel) reachable from MENU.
 Each state handles keys differently (`handle_key`), and `update()` does nothing unless the state is
 PLAYING. PAUSED and SETTINGS share the same sound controls (`sound_key`, `ui.draw_sound_panel`) —
 one piece of code, two screens.
@@ -185,7 +186,7 @@ best stars separately, because the random layout changes the best possible count
   cache scaled images; skip off-screen objects; pre-generate textures and boss frames once.
 
 **Testing and quality**
-- 34 automated tests (`tests/test_logic.py`) that run without opening the game window: rules, fairness of
+- 35 automated tests (`tests/test_logic.py`) that run without opening the game window: rules, fairness of
   every level, randomization, bosses, scores.
 - During the refactor the whole game was "fingerprinted" (every boss frame, every screen, and frame-by-frame
   state of seeded bot playthroughs of all 10 levels) and compared before/after: identical.
@@ -245,7 +246,7 @@ and how one frame flows (input → update → draw).
 18. *Which libraries?* — pygame-ce plus Python's standard library (json, math, random, array, bisect, pathlib).
 19. *Where are sounds from?* — Synthesized in code from note lists (sine + square + optional noise, envelope).
 20. *How do you save scores and settings?* — JSON files in the game folder; a missing or broken file starts fresh.
-21. *How did you test?* — 34 automated tests; a bot playing every level on many random layouts; screenshots;
+21. *How did you test?* — 35 automated tests; a bot playing every level on many random layouts; screenshots;
     a before/after fingerprint to prove the refactor changed nothing.
 22. *How do you keep it fast?* — Caching scaled images, limiting simulated/drawn people, skipping off-screen
     objects, `bisect` for visible scenery, generating textures once.

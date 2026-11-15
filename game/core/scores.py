@@ -4,6 +4,7 @@
 """
 import json
 import math
+from pathlib import Path
 
 from game.core import config as C
 
@@ -60,6 +61,16 @@ def record(level_file, count, star_count, path=None):
     except OSError:
         pass  # เขียนไฟล์ไม่ได้ (เช่น โฟลเดอร์อ่านอย่างเดียว) ก็เล่นต่อได้ แค่ไม่จำคะแนน
     return new_record
+
+
+def reset_scores(path=None):
+    """ปุ่ม Reset scores ในเมนู: ลบไฟล์คะแนน = ดาว/high score หายหมด ด่าน 2 ขึ้นไปล็อกใหม่
+    ไฟล์ไม่มีอยู่แล้ว / ลบไม่ได้ ก็ไม่เป็นไร  คืน {} (คะแนนชุดใหม่ที่ว่างเปล่า)"""
+    try:
+        Path(path or SCORE_FILE).unlink(missing_ok=True)
+    except OSError:
+        pass
+    return {}
 
 
 def is_unlocked(level_files, i, scores):
